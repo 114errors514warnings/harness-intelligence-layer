@@ -94,4 +94,11 @@ MCP 接口有意保持精简，不提供通用 Shell、文件写入、会话或�
 - 当前索引只针对指定的 `project_root`，不会自动覆盖其他业务仓库。
 - 当前 V0.1 是词法检索基线，关键修改前仍应核对真实文件和符号。
 - 尚未通过正式 A/B 任务集证明固定 token 节省比例，因此不能宣称确定的节省百分比。
+## 8. References
 
+- [OpenClaw Context Engine](https://github.com/openclaw/openclaw/blob/main/docs/concepts/context-engine.md)
+- [OpenClaw Context](https://github.com/openclaw/openclaw/blob/main/docs/concepts/context.md)
+- [OpenClaw Memory](https://github.com/openclaw/openclaw/blob/main/docs/concepts/memory-builtin.md)
+- [Cline Task Management](https://github.com/cline/cline/blob/main/docs/core-workflows/task-management.mdx)
+- [Cline Subagents](https://github.com/cline/cline/blob/main/docs/features/subagents.mdx)
+- [Cline Tools](https://github.com/cline/cline/blob/main/docs/tools-reference/all-cline-tools.mdx)

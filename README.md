@@ -11,7 +11,7 @@
 - **Embedding 延后**：先以 `ripgrep + 符号提取 + Git + 词法排序` 建立可测基线。只有当 Context Recall 不达标时，才引入向量模型和数据库。
 - **优化不是无条件成立**：小仓库、明确单文件任务可能因额外工具调用而增加 token。默认仅在跨文件任务、陌生仓库或重复任务中使用。
 
-详细依据见 [docs/assessment.md](docs/assessment.md)，执行路线见 [docs/plan.md](docs/plan.md)。
+参见 [项目总览](docs/overview.md)、[项目计划](docs/roadmap.md)和[使用说明](docs/usage.md)。
 
 ## 当前 V0.1
 
