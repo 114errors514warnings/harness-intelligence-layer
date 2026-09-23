@@ -1,0 +1,4 @@
+interface:
+  display_name: "HIL Project Knowledge"
+  short_description: "Build and query shared HIL project knowledge"
+  default_prompt: "Use $hil-project-knowledge to initialize or query the current project knowledge index."
