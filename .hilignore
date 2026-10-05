@@ -1,0 +1,7 @@
+# Paths the code index must not ingest, one pattern per line; '#' comments out.
+#
+# benchmarks/results/ holds measurement evidence. Letting the index read it back
+# would let the benchmark change the corpus it measures: indexing a single 6 KB
+# baseline file cost 1.9pp of mean recall and one target-met task, because a
+# derived file competed with source fragments for the same token budget.
+benchmarks/results/
