@@ -63,6 +63,11 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(found[0]["id"], saved["id"])
         json.loads(Path(saved["path"]).read_text(encoding="utf-8"))
 
+    def test_context_rejects_budget_below_minimum(self) -> None:
+        index_project(self.root)
+        with self.assertRaises(ValueError):
+            get_project_context("auth", self.root, 199)
+
     def test_cjk_token_estimate_is_conservative(self) -> None:
         self.assertGreaterEqual(estimate_tokens("这是中文上下文"), 7)
 
