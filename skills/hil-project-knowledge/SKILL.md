@@ -23,13 +23,15 @@ Call `index_project(project_root)` when:
 - the user asks to create or initialize project knowledge;
 - the target has no `.hil/index.json`;
 - the user asks to refresh the index;
-- a branch switch, major refactor, file move, or important symbol change makes the existing index likely stale.
+- the user wants an explicit confirmation of indexed file count.
 
-Do not rebuild the index before every query. V0.1 has no file watcher, so refresh only when one of these conditions applies.
+Do not rebuild the index before every query. V0.1 has no file watcher, but retrieval is now self-healing: `load_index` compares the stored schema version and file-set fingerprint against the working tree and rebuilds automatically when they differ, reporting `refreshed` and `stale_reason` in the `index` block of `get_project_context`. So a stale index no longer degrades results silently — it is repaired on access.
 
 ### Retrieve project context
 
 Call `get_project_context(task, project_root, token_budget)` before broad repository exploration when the task is unfamiliar, cross-file, architectural, or diagnostic.
+
+Write the `task` string as one sentence **plus the identifiers you already know**: file names, symbol names, configuration keys, error codes, CLI flags. Measured on the repository's Phase 0 task set (26 real tasks, 1500 token budget), identifier-rich task strings raised mean context recall from 47.8% to 69.9% — still short of the 90% target, so treat results as a shortlist. Two gaps remain: a Chinese-only question has no literal overlap with the English implementation files, and documentation tasks can lose budget to test files whose names match query words. Never omit an identifier you already have.
 
 Use the smallest useful budget:
 
@@ -37,7 +39,9 @@ Use the smallest useful budget:
 - 1200–2000 tokens for ordinary cross-file work;
 - up to 3000 tokens for architecture or broad dependency analysis.
 
-Inspect the returned `fragments`, `memories`, selection reasons, and estimated token count. Treat V0.1 lexical results as a reading shortlist, not proof that no other relevant code exists. Verify critical code before editing.
+Inspect the returned `fragments`, `memories`, selection reasons, estimated token count, and the `index` status block. Treat V0.1 lexical results as a reading shortlist, not proof that no other relevant code exists. Verify critical code before editing.
+
+Documentation questions ("what does the roadmap say", "why was this decision made") are the weakest case in V0.1: docs declare no symbols and their lines are long, so they lose to code fragments under the token-budget ranking. Read `docs/*` directly for those.
 
 Skip HIL for a simple task whose exact file and location are already known unless the user explicitly requests HIL.
 
@@ -62,7 +66,7 @@ Use the narrowest matching category:
 
 Record concise facts with useful tags and a source when one is known. Never store secrets, credentials, personal data, raw chat transcripts, speculative conclusions, or transient progress. Do not convert every completed task into memory.
 
-Changes limited to `.ai-memory` do not require rebuilding the code index because the memory store is intentionally excluded from `.hil/index.json`.
+Changes limited to `.ai-memory` do not require rebuilding the code index because the memory store is intentionally excluded from `.hil/index.json`. Project-level rules work the same way: a derived file listed in the project's `.hilignore` (for example a generated report under `benchmarks/results/`) is never indexed, so regenerating it does not invalidate the index.
 
 ## MCP lifecycle
 

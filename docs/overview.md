@@ -37,12 +37,13 @@ HIL 适合陌生仓库、跨模块任务、故障定位和重复任务。对于�
 
 当前版本为 V0.1，采用 dependency-light 方案：
 
-- 使用 ripgrep 发现文件并遵循常见忽略规则；
+- 使用 ripgrep 发现文件，并遵循常见忽略规则与项目根 `.hilignore` 的自定规则（两条发现路径共用同一套规则，避免"装不装 ripgrep 换一套文件集"）；
 - 使用轻量语法规则提取常见语言符号；
 - 使用路径、符号和文本命中进行词法排序；
 - 使用中英文兼容的保守 token 估算；
 - 使用 JSON 文件保存工程记忆；
 - 使用 FastMCP 提供 STDIO MCP Server；
+- 索引带 schema 版本与文件集指纹，检索前自动比对并在漂移时重建，返回值中报告陈旧原因；
 - 当可选检索后端不可用时，始终保留本地词法检索能力。
 
 当前不包含 Embedding、向量数据库、Tree-sitter、增量文件监听、Unified Validator 和 Model Router。
@@ -62,8 +63,10 @@ MCP 接口有意保持精简，不提供通用 Shell、文件写入、会话或�
 
 ```text
 <project_root>/
+├─ .hilignore                   # 可选：项目自定义的"不进索引"规则
 ├─ .hil/
-│  └─ index.json                # 代码与符号索引
+│  ├─ index.json                # 代码与符号索引
+│  └─ results/                  # 评测每次运行产生的报告（不进索引）
 └─ .ai-memory/
    ├─ architecture/             # 架构事实
    ├─ decisions/                # 技术决策
@@ -73,26 +76,27 @@ MCP 接口有意保持精简，不提供通用 Shell、文件写入、会话或�
    └─ tasks/                    # 重要任务事实
 ```
 
-`.ai-memory` 只保存可复用工程事实，不保存完整聊天记录、临时推理或秘密信息。
+`.ai-memory` 只保存可复用工程事实，不保存完整聊天记录、临时推理或秘密信息。`.hilignore` 里列出的派生文件（例如 `benchmarks/results/`）同样不进入索引，因此它们被重新生成时不会让索引失效。
 
 ## 6. 当前部署状态
 
-截至 2026-09-23：
+截至 2026-10-05：
 
-- 当前项目索引已建立，索引文件为 `.hil/index.json`；
-- 已索引 14 个项目文件；
-- 工程知识库已建立并包含初始架构与检索决策；
-- OpenClaw CLI 2026.9.5 已注册 `hil` MCP Server；
-- Cline CLI 3.0.64 已安装并注册 `hil`；
-- Cline VS Code 扩展 4.1.20 已注册 `hil`；
+- 索引文件为 `.hil/index.json`，schema 版本 2，覆盖 29 个文本文件、223 个符号；
+- 索引自愈与陈旧可见性已实现，并有单元测试覆盖；跨阶段回归门由 `benchmarks/verify.py` 与 `benchmarks/results/baseline.json` 把关；
+- 工程知识库已建立，包含架构、技术决策与缺陷记录；
+- OpenClaw CLI 2026.9.5、Cline CLI 3.0.64、Cline VS Code 扩展 4.1.20 均已注册 `hil`；
 - OpenClaw 实际探测到 4 个 HIL 工具且无诊断错误；
-- 6 项 Python 单元测试通过。
+- 95 项 Python 单元测试通过，其中包含 MCP 四工具注册与 stdio 端到端往返；
+- GitHub Actions 在 Python 3.11 与 3.13 上运行单元测试、Phase 0 任务集与回归门；
+- Phase 0 任务集（26 条）与统计脚本已建立，并已完成 Phase 2 的两处检索修正：中文词项切分使纯中文任务平均召回由 0% 级提升，`raw` 26.9% → 47.8%、`hinted` 65.7% → 69.9%（均仍未达到 90% 目标，缺口归因见 `docs/roadmap.md` §4）。
 
 ## 7. 重要边界
 
-- HIL 不会自动监控源文件变化；重要代码变化后必须重新索引。
+- HIL 不监听文件变化；索引在检索时自愈，因此自愈发生在"访问那一刻"，而不是"文件被修改那一刻"。
 - 当前索引只针对指定的 `project_root`，不会自动覆盖其他业务仓库。
 - 当前 V0.1 是词法检索基线，关键修改前仍应核对真实文件和符号。
+- 文档类问题（`docs/*.md`）：Phase 2 修正后文档片段已能与代码片段竞争（`raw` 变体下 `HIL-017`、`HIL-018` 由 0% 升至 100%），但补充标识符对文档类任务没有帮助（`hinted` 下这两条仍为 0%）；实测与归因见 `docs/roadmap.md` §4。
 - 尚未通过正式 A/B 任务集证明固定 token 节省比例，因此不能宣称确定的节省百分比。
 ## 8. References
 

@@ -36,7 +36,9 @@ D:\MY\My Projects\YourProject
 
 OpenClaw/Cline 会自动启动 HIL MCP Server、调用 `index_project`，并在目标项目内生成 `.hil/index.json`。用户不需要提前运行 `run_hil_mcp.py`，也不需要保持额外的终端窗口。
 
-需要注意，V0.1 不会在打开新项目时自动建立索引。每个新项目首次使用时，仍需通过上述对话指令触发一次。项目结构或重要符号发生较大变化后，也需要再次要求 Harness 调用 `index_project` 刷新索引。
+需要注意，V0.1 不会在打开新项目时自动建立索引。每个新项目首次使用时，仍需通过上述对话指令触发一次。
+
+索引建立之后会自愈：每次检索前，HIL 会把索引中的 schema 版本与文件集指纹（相对路径、大小、mtime）同工作树比对，发现新增、删除或修改文件就自动重建，并在返回值的 `index` 字段里说明是否重建、原因是什么。因此项目结构变化后通常不需要手动刷新索引；只有需要显式确认或排查问题时，才再次调用 `index_project`。
 
 #### 可选方式：使用本地管理 CLI
 
@@ -66,7 +68,7 @@ YourProject/
 |---|---|
 | 当前项目已有有效索引 | 直接要求 Harness 调用 `get_project_context` |
 | 新项目首次使用 | 要求 Harness 调用一次 `index_project` |
-| 文件结构或重要符号大幅变化 | 再次调用 `index_project` 刷新索引 |
+| 文件结构或重要符号大幅变化 | 通常不需要操作，检索时会自动重建；需要确认时调用 `index_project` |
 | 需要保存长期工程事实 | 明确要求调用 `record_project_memory` |
 | 只修改 `.ai-memory` | 不需要重建代码索引 |
 
@@ -78,7 +80,7 @@ YourProject/
 - 不需要每次对话都重新建立索引；
 - 不需要手动把聊天记录整理进知识库。
 
-准确地说，HIL 是“无需手动启动，但需要触发首次建库和必要的索引刷新”，而不是完全无人触发的自动索引系统。
+准确地说，HIL 是"无需手动启动、首次建库后自动保持索引新鲜（访问时自愈）"，但仍不监听文件变化：自愈发生在检索那一刻，而不是文件被修改的瞬间。
 
 ### 1.4 初始化工程知识
 
@@ -146,6 +148,8 @@ python -m harness_intelligence.cli context `
 - `estimated_tokens` 不超过预算；
 - `fragments` 包含关键文件或符号；
 - `memories` 返回相关工程事实；
+- `index.refreshed` 为 `false` 且 `index.stale_reason` 为 `null`（表示索引与工作树一致）；
+- `notice` 中没有 `WARNING: index is stale`；
 - 无关片段比例可以接受。
 
 ## 2. 运作方式
@@ -203,7 +207,7 @@ HIL 读取目标项目的 .hil 与 .ai-memory
 5. HIL 在预算内选择价值较高的代码片段和记忆。
 6. Harness 接收 Context Package，并继续完成分析或修改任务。
 
-V0.1 使用本地词法检索，不依赖云 Embedding 或外部向量数据库。
+V0.1 使用本地词法检索，不依赖云 Embedding 或外部向量数据库。词项按 ASCII 标识符与中文 2/3 字 n-gram 切分（`重建索引之后` → `重建`、`建索`、`索引`…，单字不参与匹配），片段按"该片段自身的命中密度"挑选并受 token 上限约束，因此中文提问也能命中中文文档与工程记忆。跨语言匹配（中文提问 vs 英文实现文件）不在词法检索能力范围内，见 `docs/roadmap.md` §4。
 
 ## 3. MCP 工具说明
 
@@ -221,11 +225,15 @@ index_project(project_root="D:\MY\My Projects\YourProject")
 
 ```text
 get_project_context(
-  task="定位订单创建失败的根因",
+  task="定位订单创建失败的根因（create_order、idempotency_key、retry handler）",
   project_root="D:\MY\My Projects\YourProject",
   token_budget=1500
 )
 ```
+
+返回结果中的 `index` 是索引状态块：`version` 为 schema 版本，`indexed_at` 为索引生成时间，`refreshed` 表示本次调用是否触发了自动重建，`stale_reason` 为重建原因（`null` 表示索引本来就是最新的）。`notice` 会复述同样的信息；只有显式跳过检查时才会出现 `WARNING: index is stale`。
+
+`task` 的写法直接影响召回率，请写成"一句话 + 你已知的英文标识符"。在本仓库 26 个真实任务上的实测结果（2026-10-05，检索修正后）：只写中文自然语言平均召回 47.8%（7/26 达标），补充标识符后 69.9%（15/26 达标），两者都未达到 90% 目标。剩余缺口有两类：纯中文提问与英文实现之间缺少词面重叠（跨语言匹配，词法检索解决不了），以及文档类任务与测试文件争夺预算。详见 `docs/roadmap.md` §4 的 Phase 2 修正记录与缺口归因。
 
 ### `search_project_memory`
 
@@ -340,21 +348,32 @@ VS Code 扩展同样会按需自动启动 HIL，不需要手动运行脚本。
 
 ## 7. 索引更新策略
 
-V0.1 没有文件监听和自动增量索引。发生以下情况后，应重新调用 `index_project`：
+V0.1 没有文件监听，但索引会自愈：每次检索前比对 schema 版本与文件集指纹（相对路径、大小、mtime），发现新增、删除、重命名或修改文件就自动重建。因此以下情况**通常不需要手动处理**：
 
 - 新增、删除或重命名源文件；
 - 修改了重要类、函数或接口；
 - Git 切换分支后代码变化较大；
-- 生成代码或目录结构发生变化；
-- 检索结果明显陈旧。
+- 生成代码或目录结构发生变化。
 
-仅增加或修改 `.ai-memory` 时不需要重建代码索引，因为该目录已经从代码索引中排除。
+需要显式调用 `index_project` 的场景：确认索引文件数量、排查索引问题，或需要在固定索引上做对照测量。
+
+如果确实不想让某次检索触发重建（例如只对比同一份索引下的排名），CLI 支持跳过检查：
+
+```powershell
+python -m harness_intelligence.cli context "任务" $targetProject --no-refresh
+```
+
+跳过时返回值会出现 `WARNING: index is stale (...)`，不要把这种结果当作召回评估依据。
+
+仅增加或修改 `.ai-memory` 时不需要重建代码索引，因为该目录已经从代码索引中排除。如果希望项目里的某些派生文件（评测产物、生成的报告等）完全不进入索引，在项目根目录放一个 `.hilignore`，每行一条规则：`benchmarks/results/` 表示排除该目录及其全部内容，`baseline.json` 表示排除任意层级下的同名文件。规则由两条文件发现路径共同遵守（ripgrep 与回退遍历），不会出现"装了 ripgrep 就换一套文件集"的情况。
 
 ## 8. 推荐调用策略
 
 - 陌生仓库、跨模块任务和故障定位：先调用 `get_project_context`。
-- 新仓库或索引陈旧：先调用一次 `index_project`。
+- **把已知的英文标识符写进 `task`**：文件名、符号名、配置项、错误码、CLI 参数。这是当前召回率的最大影响因素：本仓库 26 个真实任务中，纯中文表达平均召回 47.8%，补充标识符后为 69.9%。
+- 新仓库首次使用：调用一次 `index_project`；此后的文件变化无需手动刷新。
 - 已知路径的单文件任务：直接读取文件，避免额外 MCP 往返。
+- 文档类问题（例如"roadmap 怎么写"）：修正后文档片段已能与代码片段竞争（`raw` 变体下 `HIL-017`、`HIL-018` 由 0% 升至 100%），但补充标识符对文档类任务没有帮助（`hinted` 下这两条仍是 0%，标识符会把预算引向代码文件），直接读取文档仍是更稳的做法。
 - 默认 token 预算从 800–2000 开始，根据召回情况调整。
 - HIL 返回结果用于缩小阅读范围，关键修改前仍需核对真实代码。
 - 只有明确为长期事实的内容才写入 `.ai-memory`。
@@ -366,8 +385,11 @@ V0.1 没有文件监听和自动增量索引。发生以下情况后，应重新
 ```powershell
 Set-Location -LiteralPath "D:\MY\My Projects\HarnessIntelligenceLayer"
 $env:PYTHONPATH = "src"
-python -m unittest discover -s tests -v
+python -m unittest discover -s tests -v   # 95 项，含 MCP stdio 端到端往返、评测门与语料自洽性
+python benchmarks/verify.py               # 跨阶段验证与回归门；SKIP 表示本机无法运行，不计为通过
 ```
+
+`benchmarks/verify.py` 的检查清单与容差见 `benchmarks/README.md` §6。它覆盖单元测试覆盖不到的部分：真实包的行号自洽、两条文件发现路径得到同一文件集、相对基线 `benchmarks/results/baseline.json` 的召回回归、索引与源码集对齐、以及 `--compare` 的三种退出码（3 数据不可用 / 1 未达门槛 / 0 全部通过）。
 
 建议按以下顺序排查：
 
@@ -376,8 +398,9 @@ python -m unittest discover -s tests -v
 3. 运行 `openclaw mcp probe hil --json` 或 `cline config mcp --json`。
 4. 确认 `C:\Python314\python.exe` 与 `run_hil_mcp.py` 存在。
 5. 在 Harness 中显式要求调用 `get_project_context`。
-6. 如果结果陈旧，重新调用 `index_project`。
-7. 如果 Cline VS Code 未显示工具，重新加载 VS Code 窗口。
+6. 查看返回值的 `index` 字段：`refreshed` 为 `true` 说明本次已自动重建；若 `notice` 出现 `WARNING: index is stale`，说明该次调用跳过了检查，请去掉 `--no-refresh` 或调用 `index_project`。
+7. 召回明显偏低时，先把 `task` 改写成"一句话 + 英文标识符"再重试，并对照 `benchmarks/` 的基线判断是否属于已知的文档召回缺口。
+8. 如果 Cline VS Code 未显示工具，重新加载 VS Code 窗口。
 
 ## 10. Token 优化验证
 
@@ -387,3 +410,9 @@ HIL 能减少重复搜索，但不能在没有对照数据时保证固定节省�
 - 先使用 HIL Context Package 的执行。
 
 至少记录输入 token、工具调用次数、读取文件数量、重试次数和最终正确性。只有在任务质量保持稳定时，token 减少才构成有效优化。
+
+本仓库已经把该流程脚本化：任务集在 `benchmarks/tasks.jsonl`，统计与门槛判定在 `benchmarks/measure.py`，填写与判定步骤见 `benchmarks/README.md`。当前状态：
+
+- HIL 侧指标可直接复现（召回、包体积、延迟、重复片段）；
+- 原生基线尚未填写；A/B 表未填满时脚本会拒绝输出节省比例（退出码 3）；
+- 因此本仓库目前不宣称任何固定节省百分比。
