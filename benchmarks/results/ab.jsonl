@@ -1,0 +1,52 @@
+{"id": "HIL-001", "harness": "openclaw", "prompt": "重建索引之后 docs 目录下的文档还是检索不到，请定位根因。", "native": null, "hil": null}
+{"id": "HIL-001", "harness": "cline", "prompt": "重建索引之后 docs 目录下的文档还是检索不到，请定位根因。", "native": null, "hil": null}
+{"id": "HIL-002", "harness": "openclaw", "prompt": "源文件已经删除，get_project_context 仍然返回了它的片段，为什么？", "native": null, "hil": null}
+{"id": "HIL-002", "harness": "cline", "prompt": "源文件已经删除，get_project_context 仍然返回了它的片段，为什么？", "native": null, "hil": null}
+{"id": "HIL-003", "harness": "openclaw", "prompt": "给 get_project_context 的返回值增加索引陈旧状态字段。", "native": null, "hil": null}
+{"id": "HIL-003", "harness": "cline", "prompt": "给 get_project_context 的返回值增加索引陈旧状态字段。", "native": null, "hil": null}
+{"id": "HIL-004", "harness": "openclaw", "prompt": "索引 schema 版本升级之后要如何自动重建旧索引？", "native": null, "hil": null}
+{"id": "HIL-004", "harness": "cline", "prompt": "索引 schema 版本升级之后要如何自动重建旧索引？", "native": null, "hil": null}
+{"id": "HIL-005", "harness": "openclaw", "prompt": "四个 MCP 工具在哪个函数里注册？", "native": null, "hil": null}
+{"id": "HIL-005", "harness": "cline", "prompt": "四个 MCP 工具在哪个函数里注册？", "native": null, "hil": null}
+{"id": "HIL-006", "harness": "openclaw", "prompt": "token 估算是怎么保守处理中文的？", "native": null, "hil": null}
+{"id": "HIL-006", "harness": "cline", "prompt": "token 估算是怎么保守处理中文的？", "native": null, "hil": null}
+{"id": "HIL-007", "harness": "openclaw", "prompt": "为什么 .ai-memory 的内容不会被写进代码索引？", "native": null, "hil": null}
+{"id": "HIL-007", "harness": "cline", "prompt": "为什么 .ai-memory 的内容不会被写进代码索引？", "native": null, "hil": null}
+{"id": "HIL-008", "harness": "openclaw", "prompt": "工程记忆允许哪些分类，分类校验在哪里？", "native": null, "hil": null}
+{"id": "HIL-008", "harness": "cline", "prompt": "工程记忆允许哪些分类，分类校验在哪里？", "native": null, "hil": null}
+{"id": "HIL-009", "harness": "openclaw", "prompt": "MCP 客户端通过哪个入口脚本启动 HIL 服务端，为什么要单独写入口？", "native": null, "hil": null}
+{"id": "HIL-009", "harness": "cline", "prompt": "MCP 客户端通过哪个入口脚本启动 HIL 服务端，为什么要单独写入口？", "native": null, "hil": null}
+{"id": "HIL-010", "harness": "openclaw", "prompt": "上下文包如何在 token 预算内挑选片段，记忆占用多少预算？", "native": null, "hil": null}
+{"id": "HIL-010", "harness": "cline", "prompt": "上下文包如何在 token 预算内挑选片段，记忆占用多少预算？", "native": null, "hil": null}
+{"id": "HIL-011", "harness": "openclaw", "prompt": "token 预算传小于 200 会发生什么？", "native": null, "hil": null}
+{"id": "HIL-011", "harness": "cline", "prompt": "token 预算传小于 200 会发生什么？", "native": null, "hil": null}
+{"id": "HIL-012", "harness": "openclaw", "prompt": "符号提取支持哪些语言的声明模式？", "native": null, "hil": null}
+{"id": "HIL-012", "harness": "cline", "prompt": "符号提取支持哪些语言的声明模式？", "native": null, "hil": null}
+{"id": "HIL-013", "harness": "openclaw", "prompt": "工程记忆检索是怎么打分的？", "native": null, "hil": null}
+{"id": "HIL-013", "harness": "cline", "prompt": "工程记忆检索是怎么打分的？", "native": null, "hil": null}
+{"id": "HIL-014", "harness": "openclaw", "prompt": "在 OpenClaw 里配置 hil MCP Server 需要哪些字段？", "native": null, "hil": null}
+{"id": "HIL-014", "harness": "cline", "prompt": "在 OpenClaw 里配置 hil MCP Server 需要哪些字段？", "native": null, "hil": null}
+{"id": "HIL-015", "harness": "openclaw", "prompt": "项目现在的版本、所处阶段和仍未完成的事项是什么？", "native": null, "hil": null}
+{"id": "HIL-015", "harness": "cline", "prompt": "项目现在的版本、所处阶段和仍未完成的事项是什么？", "native": null, "hil": null}
+{"id": "HIL-016", "harness": "openclaw", "prompt": "照着 README 执行 pip install -e . 之后找不到 hil 命令，为什么？", "native": null, "hil": null}
+{"id": "HIL-016", "harness": "cline", "prompt": "照着 README 执行 pip install -e . 之后找不到 hil 命令，为什么？", "native": null, "hil": null}
+{"id": "HIL-017", "harness": "openclaw", "prompt": "代码索引和工程知识库的存储位置与生命周期有什么区别？", "native": null, "hil": null}
+{"id": "HIL-017", "harness": "cline", "prompt": "代码索引和工程知识库的存储位置与生命周期有什么区别？", "native": null, "hil": null}
+{"id": "HIL-018", "harness": "openclaw", "prompt": "A/B 对照实验的成功门槛包含哪些数字指标？", "native": null, "hil": null}
+{"id": "HIL-018", "harness": "cline", "prompt": "A/B 对照实验的成功门槛包含哪些数字指标？", "native": null, "hil": null}
+{"id": "HIL-019", "harness": "openclaw", "prompt": "为什么 V0.1 阶段不引入 embedding 和向量数据库？", "native": null, "hil": null}
+{"id": "HIL-019", "harness": "cline", "prompt": "为什么 V0.1 阶段不引入 embedding 和向量数据库？", "native": null, "hil": null}
+{"id": "HIL-020", "harness": "openclaw", "prompt": "记忆检索结果占满了预算导致代码片段进不来，应该怎么调整？", "native": null, "hil": null}
+{"id": "HIL-020", "harness": "cline", "prompt": "记忆检索结果占满了预算导致代码片段进不来，应该怎么调整？", "native": null, "hil": null}
+{"id": "HIL-021", "harness": "openclaw", "prompt": "如何在本地运行这个项目的单元测试？", "native": null, "hil": null}
+{"id": "HIL-021", "harness": "cline", "prompt": "如何在本地运行这个项目的单元测试？", "native": null, "hil": null}
+{"id": "HIL-022", "harness": "openclaw", "prompt": "如何验证 MCP stdio 桥接和四个工具真的可用？", "native": null, "hil": null}
+{"id": "HIL-022", "harness": "cline", "prompt": "如何验证 MCP stdio 桥接和四个工具真的可用？", "native": null, "hil": null}
+{"id": "HIL-023", "harness": "openclaw", "prompt": "这个项目明确不做什么，边界在哪里？", "native": null, "hil": null}
+{"id": "HIL-023", "harness": "cline", "prompt": "这个项目明确不做什么，边界在哪里？", "native": null, "hil": null}
+{"id": "HIL-024", "harness": "openclaw", "prompt": "索引会排除哪些目录？", "native": null, "hil": null}
+{"id": "HIL-024", "harness": "cline", "prompt": "索引会排除哪些目录？", "native": null, "hil": null}
+{"id": "HIL-025", "harness": "openclaw", "prompt": "索引陈旧检测依赖哪些元数据？", "native": null, "hil": null}
+{"id": "HIL-025", "harness": "cline", "prompt": "索引陈旧检测依赖哪些元数据？", "native": null, "hil": null}
+{"id": "HIL-026", "harness": "openclaw", "prompt": "新增一个 MCP 工具时需要同步修改哪些地方？", "native": null, "hil": null}
+{"id": "HIL-026", "harness": "cline", "prompt": "新增一个 MCP 工具时需要同步修改哪些地方？", "native": null, "hil": null}

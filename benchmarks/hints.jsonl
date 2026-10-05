@@ -1,0 +1,26 @@
+{"id": "HIL-001", "hinted_prompt": "索引重建后 docs 文档仍检索不到：load_index 是否比较文件集，get_project_context 为什么静默跳过缺失文件"}
+{"id": "HIL-002", "hinted_prompt": "删除源文件后仍返回它的片段：discover_files 与 get_project_context 在索引陈旧时的行为"}
+{"id": "HIL-003", "hinted_prompt": "给 get_project_context 返回值增加 index 陈旧状态字段 stale_reason 与 refreshed"}
+{"id": "HIL-004", "hinted_prompt": "索引 schema 版本升级：INDEX_VERSION 与 staleness_reason 如何触发自动重建"}
+{"id": "HIL-005", "hinted_prompt": "四个 MCP 工具在哪个函数里注册：create_server 里的 FastMCP 与 mcp.tool"}
+{"id": "HIL-006", "hinted_prompt": "token 估算 estimate_tokens 如何保守处理中文 CJK 字符"}
+{"id": "HIL-007", "hinted_prompt": "为什么 .ai-memory 不进入代码索引：DEFAULT_EXCLUDES 与 discover_files 的排除规则"}
+{"id": "HIL-008", "hinted_prompt": "工程记忆分类白名单与校验：record_memory 允许 architecture decisions bugs conventions experiments tasks"}
+{"id": "HIL-009", "hinted_prompt": "MCP 客户端启动的入口脚本为何先注入 sys.path 再调用 server 的 main：为什么不让它待在包内"}
+{"id": "HIL-010", "hinted_prompt": "上下文包预算选择：get_project_context 按 Candidate 的 score/token_cost 排序，memory_cap 为 token_budget//4"}
+{"id": "HIL-011", "hinted_prompt": "token_budget 小于 200 时 get_project_context 抛 ValueError，CLI 转 argparse 退出码 2"}
+{"id": "HIL-012", "hinted_prompt": "符号提取 SYMBOL_PATTERNS 与 extract_symbols 支持哪些语言的声明模式"}
+{"id": "HIL-013", "hinted_prompt": "search_memory 如何按标题、标签和正文命中打分排序"}
+{"id": "HIL-014", "hinted_prompt": "OpenClaw 配置 hil MCP Server 需要哪些字段：command args env stdio 工作目录"}
+{"id": "HIL-015", "hinted_prompt": "项目当前版本与阶段：version 0.1.0，Phase 0 Phase 1 Phase 2 的完成情况与未完成事项、下一步优先级"}
+{"id": "HIL-016", "hinted_prompt": "pip install -e . 之后找不到 hil 命令：console script 未安装，未安装时应走 run_hil_mcp.py 与 PYTHONPATH"}
+{"id": "HIL-017", "hinted_prompt": ".hil/index.json 代码索引与 .ai-memory 工程知识库的存储位置、生命周期差异"}
+{"id": "HIL-018", "hinted_prompt": "A/B 对照实验成功门槛：中位输入 token 降低 20%，Context Recall 90%，成功率下降不超过 2 个百分点"}
+{"id": "HIL-019", "hinted_prompt": "为什么 V0.1 不引入 embedding 向量数据库 Qdrant Cross-Encoder，先用词法检索建基线"}
+{"id": "HIL-020", "hinted_prompt": "memory_cap 占满预算导致代码片段进不来：get_project_context 的 token_budget 与记忆命中如何调整"}
+{"id": "HIL-021", "hinted_prompt": "如何运行单元测试：PYTHONPATH src 与 python -m unittest discover tests"}
+{"id": "HIL-022", "hinted_prompt": "验证 MCP stdio 桥接与四个工具：test_stdio_server_round_trip 用 ClientSession 依次调用"}
+{"id": "HIL-023", "hinted_prompt": "项目明确不做什么：Agent Loop、通用 Shell、Session Manager、Sub-Agent、固定节省比例宣传"}
+{"id": "HIL-024", "hinted_prompt": "索引排除哪些目录：DEFAULT_EXCLUDES 中的 .git .hil .ai-memory .venv node_modules dist build __pycache__"}
+{"id": "HIL-025", "hinted_prompt": "索引陈旧检测依赖哪些元数据：file_state 指纹由 path size mtime_ns 取 sha1，staleness_reason"}
+{"id": "HIL-026", "hinted_prompt": "新增一个 MCP 工具需要同步修改哪些地方：create_server、EXPECTED_TOOLS 断言与文档工具列表"}
