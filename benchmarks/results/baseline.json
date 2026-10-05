@@ -1,0 +1,87 @@
+{
+  "generated_at": "2026-10-05T09:48:44+00:00",
+  "hil_version": "0.1.0",
+  "index_schema_version": 2,
+  "token_budget": 1500,
+  "tasks": 26,
+  "variants": {
+    "raw": {
+      "tasks": 26,
+      "tasks_with_recall_criteria": 26,
+      "mean_recall_pct": 47.8,
+      "min_recall_pct": 0.0,
+      "perfect_recall_tasks": 7,
+      "tasks_meeting_target_recall": 7,
+      "target_recall_pct": 90.0,
+      "median_package_tokens": 1468,
+      "mean_package_tokens": 1466.0,
+      "token_budget": 1500,
+      "p50_latency_ms": 194.1,
+      "p95_latency_ms": 246.1,
+      "max_latency_ms": 249.1,
+      "duplicate_pairs": 0,
+      "duplicate_tokens": 0,
+      "index_refresh_events": 0,
+      "files_never_recalled": [
+        "AGENTS.md",
+        "README.md",
+        "docs/usage.md",
+        "pyproject.toml",
+        "src/harness_intelligence/cli.py",
+        "src/harness_intelligence/indexer.py",
+        "src/harness_intelligence/memory.py",
+        "src/harness_intelligence/retrieval.py",
+        "src/harness_intelligence/server.py",
+        "tests/test_index_freshness.py"
+      ],
+      "symbols_never_recalled": [
+        "Candidate",
+        "DEFAULT_EXCLUDES",
+        "SYMBOL_PATTERNS",
+        "create_server",
+        "discover_files",
+        "extract_symbols",
+        "file_state",
+        "get_project_context",
+        "load_index",
+        "main",
+        "record_memory",
+        "search_memory",
+        "staleness_reason"
+      ]
+    },
+    "hinted": {
+      "tasks": 26,
+      "tasks_with_recall_criteria": 26,
+      "mean_recall_pct": 69.9,
+      "min_recall_pct": 0.0,
+      "perfect_recall_tasks": 15,
+      "tasks_meeting_target_recall": 15,
+      "target_recall_pct": 90.0,
+      "median_package_tokens": 1477,
+      "mean_package_tokens": 1463.7,
+      "token_budget": 1500,
+      "p50_latency_ms": 226.8,
+      "p95_latency_ms": 286.2,
+      "max_latency_ms": 298.5,
+      "duplicate_pairs": 0,
+      "duplicate_tokens": 0,
+      "index_refresh_events": 0,
+      "files_never_recalled": [
+        "README.md",
+        "docs/overview.md",
+        "docs/roadmap.md",
+        "docs/usage.md",
+        "pyproject.toml",
+        "src/harness_intelligence/indexer.py",
+        "src/harness_intelligence/retrieval.py",
+        "tests/test_index_freshness.py"
+      ],
+      "symbols_never_recalled": [
+        "DEFAULT_EXCLUDES",
+        "get_project_context"
+      ]
+    }
+  },
+  "note": "Regenerate with `python benchmarks/verify.py --write-baseline` after an intentional retrieval change, and review the diff before committing."
+}

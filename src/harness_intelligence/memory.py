@@ -1,20 +1,16 @@
 from __future__ import annotations
 
 import json
-import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+
+from .terms import extract_terms
 
 
 CATEGORIES = {
     "architecture", "decisions", "bugs", "conventions", "experiments", "tasks"
 }
-WORD_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{1,}|[\u3400-\u9fff]{2,}")
-
-
-def _terms(text: str) -> set[str]:
-    return {match.group(0).lower() for match in WORD_RE.finditer(text)}
 
 
 def record_memory(
@@ -52,7 +48,7 @@ def search_memory(query: str, project_root: str | Path, limit: int = 5) -> list[
     memory_root = root / ".ai-memory"
     if not memory_root.exists():
         return []
-    query_set = _terms(query)
+    query_set = set(extract_terms(query, limit=None))
     matches = []
     for path in memory_root.glob("*/*.json"):
         try:
@@ -60,7 +56,7 @@ def search_memory(query: str, project_root: str | Path, limit: int = 5) -> list[
         except (OSError, json.JSONDecodeError):
             continue
         haystack = " ".join([payload.get("title", ""), payload.get("content", ""), *payload.get("tags", [])])
-        overlap = query_set & _terms(haystack)
+        overlap = query_set & set(extract_terms(haystack, limit=None))
         if overlap or not query_set:
             matches.append(
                 {
