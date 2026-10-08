@@ -66,6 +66,8 @@ Use the narrowest matching category:
 
 Record concise facts with useful tags and a source when one is known. Never store secrets, credentials, personal data, raw chat transcripts, speculative conclusions, or transient progress. Do not convert every completed task into memory.
 
+Record facts about the project that *owns* the store. `.ai-memory` sits inside the project it describes, so a fact about a different repository is noise for this project's queries and is spent against the same token budget; each record carries the owning project path (`project`) so a misfiled fact is checkable instead of a guess. Do not copy another project's facts into this store.
+
 Changes limited to `.ai-memory` do not require rebuilding the code index because the memory store is intentionally excluded from `.hil/index.json`. Project-level rules work the same way: a derived file listed in the project's `.hilignore` (for example a generated report under `benchmarks/results/`) is never indexed, so regenerating it does not invalidate the index.
 
 ## MCP lifecycle

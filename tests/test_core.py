@@ -63,6 +63,14 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(found[0]["id"], saved["id"])
         json.loads(Path(saved["path"]).read_text(encoding="utf-8"))
 
+    def test_memory_records_the_owning_project(self) -> None:
+        # The store lives inside the project it describes, so the owner is what
+        # makes a misfiled fact checkable rather than a guess.
+        saved = record_memory("conventions", "Ownership", "Facts belong to one project.", self.root)
+        self.assertEqual(saved["project"], str(Path(self.root).resolve()))
+        found = search_memory("ownership facts", self.root)
+        self.assertEqual(found[0]["project"], saved["project"])
+
     def test_context_rejects_budget_below_minimum(self) -> None:
         index_project(self.root)
         with self.assertRaises(ValueError):

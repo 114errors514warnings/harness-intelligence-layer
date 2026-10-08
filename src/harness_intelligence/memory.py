@@ -34,6 +34,7 @@ def record_memory(
         "content": content.strip(),
         "tags": tags or [],
         "source": source,
+        "project": str(root),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     target = root / ".ai-memory" / category
