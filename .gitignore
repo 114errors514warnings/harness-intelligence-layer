@@ -1,5 +1,8 @@
 .hil/
 .ai-memory/
+# Local scratch space; never part of the project. A stray memory record landed
+# here on 2026-10-06 and one `git add -A` would have published it.
+_tmp/
 __pycache__/
 *.py[cod]
 .pytest_cache/

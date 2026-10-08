@@ -5,3 +5,8 @@
 # baseline file cost 1.9pp of mean recall and one target-met task, because a
 # derived file competed with source fragments for the same token budget.
 benchmarks/results/
+
+# Scratch space. Files under _tmp/ are working residue, not project source: a
+# stray memory record dropped there on 2026-10-06 sat one index refresh away
+# from competing for the same token budget (.json is an indexed suffix).
+_tmp/
