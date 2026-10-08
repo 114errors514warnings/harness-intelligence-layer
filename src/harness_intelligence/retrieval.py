@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .indexer import load_index, read_text
 from .memory import search_memory
-from .terms import content_pattern, extract_terms, identifier_parts
+from .terms import bridged_terms, content_pattern, extract_terms, identifier_parts
 from .tokens import estimate_tokens
 
 
@@ -38,15 +38,12 @@ SYMBOL_WORD_WEIGHT = 2.0
 CONTENT_HIT_WEIGHT = 1.5
 MAX_BONUS_HITS = 3
 
-
-def query_terms(task: str) -> list[str]:
-    """Terms a task is matched by.
-
-    Delegates to :func:`terms.extract_terms` so code retrieval and memory search
-    cannot drift apart, and so a Chinese run is split into n-grams instead of
-    becoming one unmatchable term.
-    """
-    return extract_terms(task)
+#: A bridged hit (index for 索引) is a translation of what the caller wrote, not
+#: what they wrote, so it counts for less than a literal hit. Full weight let a
+#: Chinese doc question whose glossary hit ("index") is rich in tests/*.py lose
+#: its documentation, and let bridge-heavy windows displace the fragment that held
+#: a required symbol.
+BRIDGE_HIT_WEIGHT = 0.5
 
 
 #: A fragment is a focused slice of a file, not a chapter. Windows stop growing at
@@ -128,6 +125,8 @@ def _entry_candidates(
     text: str,
     terms: list[str],
     content_re,
+    bridge_terms: set[str] | None = None,
+    bridge_re=None,
 ) -> list[Candidate]:
     """Score the fragments of one file, by what each fragment itself contains.
 
@@ -144,13 +143,19 @@ def _entry_candidates(
     unbounded.
     """
     term_set = set(terms)
-    path_hits = [term for term in terms if term in path.lower()]
+    # Path matching is the strongest bonus, so it stays literal: a term the
+    # caller *typed* naming a file is evidence, while a bridged translation of
+    # Chinese (index for 索引) is a guess about content, and letting it buy the
+    # path bonus sent documentation tasks to tests/test_index_*.py. Bridge terms
+    # still match content and symbol names below.
+    bridged = bridge_terms or set()
+    path_hits = [term for term in terms if term not in bridged and term in path.lower()]
     symbol_hits = [
         symbol for symbol in symbols if identifier_parts(symbol["name"]) & term_set
     ]
     lines = text.splitlines()
     lowered_lines = [line.lower() for line in lines]
-    content_hits = (
+    literal_hits = (
         [
             number for number, lowered in enumerate(lowered_lines, 1)
             if content_re.search(lowered)
@@ -158,6 +163,15 @@ def _entry_candidates(
         if content_re
         else []
     )
+    bridge_hits = (
+        [
+            number for number, lowered in enumerate(lowered_lines, 1)
+            if bridge_re.search(lowered)
+        ]
+        if bridge_re
+        else []
+    )
+    content_hits = sorted({*literal_hits, *bridge_hits})
     if terms and not (path_hits or symbol_hits or content_hits):
         return []
     exact_hits = [item for item in symbol_hits if item["name"].lower() in term_set]
@@ -179,16 +193,18 @@ def _entry_candidates(
     hit_lines = content_hits or [item["line"] for item in symbol_hits]
     scored = []
     for start, end in _windows(lines, hit_lines):
-        window_hits = sum(1 for line in content_hits if start <= line <= end)
-        scored.append((window_hits, start, end))
+        literal_in_window = sum(1 for line in literal_hits if start <= line <= end)
+        bridge_in_window = sum(1 for line in bridge_hits if start <= line <= end)
+        weight = literal_in_window + BRIDGE_HIT_WEIGHT * bridge_in_window
+        scored.append((weight, literal_in_window + bridge_in_window, start, end))
     # Emit the windows where the evidence is, not the ones that happen to sit
     # highest in the file: a file's best fragment is the one a caller would pick.
     # On equal evidence the cheaper window wins, which is the same trade the
     # budget selection makes one step later.
-    scored.sort(key=lambda item: (item[0], item[1] - item[2]), reverse=True)
+    scored.sort(key=lambda item: (item[0], item[2] - item[3]), reverse=True)
     chosen = scored[:MAX_WINDOWS]
     candidates = []
-    for window_hits, start, end in sorted(chosen, key=lambda item: item[1]):
+    for weight, window_hits, start, end in sorted(chosen, key=lambda item: item[2]):
         label = f"text_hits:{window_hits}" if window_hits else f"symbol_lines:{len(hit_lines)}"
         candidates.append(
             Candidate(
@@ -196,7 +212,7 @@ def _entry_candidates(
                 start,
                 end,
                 "\n".join(f"{i}: {lines[i - 1]}" for i in range(start, end + 1)),
-                bonuses + window_hits * CONTENT_HIT_WEIGHT,
+                bonuses + weight * CONTENT_HIT_WEIGHT,
                 [*reasons, label],
             )
         )
@@ -219,11 +235,16 @@ def get_project_context(
         raise ValueError("token_budget must be at least 200")
     root = Path(project_root).resolve()
     index = load_index(root, refresh=refresh_index)
-    terms = query_terms(task)
+    literal_terms = extract_terms(task)
+    bridge = [term for term in bridged_terms(task) if term not in set(literal_terms)]
+    terms = [*literal_terms, *bridge]
     # Only the number of matching lines is used, so one compiled alternation
     # scans a line in C instead of looping over every term in Python. This keeps
-    # Chinese tasks cheap now that one prompt can yield dozens of n-grams.
-    content_re = content_pattern(terms)
+    # Chinese tasks cheap now that one prompt can yield dozens of n-grams. Literal
+    # and bridged terms are compiled apart so a bridge hit can be weighted below a
+    # hit on what the caller actually wrote.
+    content_re = content_pattern(literal_terms)
+    bridge_re = content_pattern(bridge)
     candidates: list[Candidate] = []
     for entry in index["files"]:
         text = read_text(root / entry["path"])
@@ -231,7 +252,13 @@ def get_project_context(
             continue
         candidates.extend(
             _entry_candidates(
-                entry["path"], entry.get("symbols", []), text, terms, content_re
+                entry["path"],
+                entry.get("symbols", []),
+                text,
+                terms,
+                content_re,
+                set(bridge),
+                bridge_re,
             )
         )
 

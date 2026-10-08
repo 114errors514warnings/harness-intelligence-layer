@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .terms import extract_terms
+from .terms import bridged_terms, extract_terms
 
 
 CATEGORIES = {
@@ -49,7 +49,10 @@ def search_memory(query: str, project_root: str | Path, limit: int = 5) -> list[
     memory_root = root / ".ai-memory"
     if not memory_root.exists():
         return []
-    query_set = set(extract_terms(query, limit=None))
+    # The query side is bridged to English, the haystack stays literal: a Chinese
+    # query reaches an English-titled fact, while the stored text is never
+    # rewritten (the same contract as code retrieval).
+    query_set = set(extract_terms(query, limit=None)) | set(bridged_terms(query))
     matches = []
     for path in memory_root.glob("*/*.json"):
         try:

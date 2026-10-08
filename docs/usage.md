@@ -207,7 +207,7 @@ HIL 读取目标项目的 .hil 与 .ai-memory
 5. HIL 在预算内选择价值较高的代码片段和记忆。
 6. Harness 接收 Context Package，并继续完成分析或修改任务。
 
-V0.1 使用本地词法检索，不依赖云 Embedding 或外部向量数据库。词项按 ASCII 标识符与中文 2/3 字 n-gram 切分（`重建索引之后` → `重建`、`建索`、`索引`…，单字不参与匹配），片段按"该片段自身的命中密度"挑选并受 token 上限约束，因此中文提问也能命中中文文档与工程记忆。跨语言匹配（中文提问 vs 英文实现文件）不在词法检索能力范围内，见 `docs/roadmap.md` §4。
+V0.1 使用本地词法检索，不依赖云 Embedding 或外部向量数据库。词项按 ASCII 标识符与中文 2/3 字 n-gram 切分（`重建索引之后` → `重建`、`建索`、`索引`…，单字不参与匹配），片段按"该片段自身的命中密度"挑选并受 token 上限约束，因此中文提问也能命中中文文档与工程记忆。中文提问还会经一份小型中英词表桥接为英文查询词（如 索引→index、陈旧→stale），以弥补中文提问与英文实现之间的词面缺口；桥接只扩展查询侧，词表未覆盖的中英对仍是缺口，见 `docs/roadmap.md` §4。
 
 ## 3. MCP 工具说明
 
@@ -233,7 +233,7 @@ get_project_context(
 
 返回结果中的 `index` 是索引状态块：`version` 为 schema 版本，`indexed_at` 为索引生成时间，`refreshed` 表示本次调用是否触发了自动重建，`stale_reason` 为重建原因（`null` 表示索引本来就是最新的）。`notice` 会复述同样的信息；只有显式跳过检查时才会出现 `WARNING: index is stale`。
 
-`task` 的写法直接影响召回率，请写成"一句话 + 你已知的英文标识符"。在本仓库 26 个真实任务上的实测结果（2026-10-05，检索修正后）：只写中文自然语言平均召回 47.8%（7/26 达标），补充标识符后 69.9%（15/26 达标），两者都未达到 90% 目标。剩余缺口有两类：纯中文提问与英文实现之间缺少词面重叠（跨语言匹配，词法检索解决不了），以及文档类任务与测试文件争夺预算。详见 `docs/roadmap.md` §4 的 Phase 2 修正记录与缺口归因。
+`task` 的写法仍会影响召回率，请写成"一句话 + 你已知的英文标识符"。在本仓库 26 个真实任务上的实测结果（2026-10-08，完成跨语言词面桥接后）：只写中文自然语言平均召回 68.9%（11/26 达标），补充标识符后 68.9%（14/26 达标），两者都未达到 90% 目标。桥接让纯中文提问接近"补标识符"的水平，因此标识符不再是硬门槛，但直接写出仍然更准。剩余缺口是词表未覆盖的中英对，以及文档类任务与测试文件争夺预算。详见 `docs/roadmap.md` §4 的 Phase 2 修正记录与缺口归因。
 
 ### `search_project_memory`
 
@@ -385,7 +385,7 @@ python -m harness_intelligence.cli context "任务" $targetProject --no-refresh
 ```powershell
 Set-Location -LiteralPath "D:\MY\My Projects\HarnessIntelligenceLayer"
 $env:PYTHONPATH = "src"
-python -m unittest discover -s tests -v   # 95 项，含 MCP stdio 端到端往返、评测门与语料自洽性
+python -m unittest discover -s tests -v   # 101 项，含 MCP stdio 端到端往返、评测门与语料自洽性
 python benchmarks/verify.py               # 跨阶段验证与回归门；SKIP 表示本机无法运行，不计为通过
 ```
 

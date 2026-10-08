@@ -95,6 +95,22 @@ class FragmentScoringTests(unittest.TestCase):
     def test_a_file_without_any_hit_yields_nothing(self) -> None:
         self.assertEqual(candidates("nothing matches here\n", ["indexer"]), [])
 
+    def test_a_bridged_term_does_not_buy_a_path_bonus(self) -> None:
+        # 索引 -> index is a guess about content, not a name the caller typed, so
+        # it must not path-match tests/test_index_*.py. Measured: letting it did
+        # sent documentation tasks into the index tests.
+        found = _entry_candidates(
+            "tests/test_index_freshness.py",
+            [],
+            "nothing matches here\n",
+            ["index"],
+            content_pattern(["index"]),
+            {"index"},
+        )
+        self.assertEqual(found, [])
+        literal = candidates("nothing matches here\n", ["index"], path="tests/test_index_freshness.py")
+        self.assertEqual(literal[0].score, 8.0)
+
     def test_terms_are_matched_case_insensitively(self) -> None:
         found = candidates("Load_Index()\n", ["load_index"])
         self.assertEqual(window_hits(found[0]), 1)

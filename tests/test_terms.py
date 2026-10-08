@@ -4,6 +4,7 @@ import unittest
 
 from harness_intelligence.terms import (
     MAX_TERMS,
+    bridged_terms,
     content_pattern,
     extract_terms,
     identifier_parts,
@@ -58,6 +59,29 @@ class ExtractTermsTests(unittest.TestCase):
     def test_set_based_callers_can_opt_out_of_the_cap(self) -> None:
         self.assertGreater(len(extract_terms(varied_runs(200), limit=None)), MAX_TERMS)
         self.assertEqual(len(extract_terms(varied_runs(200))), MAX_TERMS)
+
+
+class BridgedTermsTests(unittest.TestCase):
+    """The query-side bridge from a Chinese prompt to English source."""
+
+    def test_chinese_words_gain_their_english_lookups(self) -> None:
+        # The gap this guards: "索引陈旧检测" n-grams never overlap indexer.py or
+        # staleness_reason, so a Chinese-only task could not reach English code.
+        self.assertEqual(
+            bridged_terms("索引陈旧检测"),
+            ["index", "stale", "detect"],
+        )
+
+    def test_ascii_only_text_bridges_nothing(self) -> None:
+        self.assertEqual(bridged_terms("load_index staleness_reason"), [])
+
+    def test_terms_are_deduplicated_in_first_seen_order(self) -> None:
+        # 索引 and 检索 both map to English, and overlapping keys must not repeat.
+        self.assertEqual(bridged_terms("索引与检索"), ["index", "search", "retrieval"])
+
+    def test_only_whole_phrases_trigger_the_bridge(self) -> None:
+        # A single overlapping character is not a phrase match.
+        self.assertEqual(bridged_terms("引"), [])
 
 
 class ContentPatternTests(unittest.TestCase):
