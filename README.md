@@ -91,7 +91,7 @@ V0.1 的检索对任务表达仍敏感，实测（`benchmarks/`，26 个真实�
 
 ```powershell
 $env:PYTHONPATH = "src"
-python -m unittest discover -s tests -v      # 101 项单元测试，含 MCP stdio 端到端往返
+python -m unittest discover -s tests -v      # 102 项单元测试，含 MCP stdio 端到端往返
 
 # Phase 0 评测：任务集召回、包体积、延迟、重复片段
 python benchmarks/measure.py --budget 1500 --label baseline --variant raw

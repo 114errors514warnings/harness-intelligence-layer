@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -110,6 +111,62 @@ class IndexFreshnessTests(unittest.TestCase):
         self.assertIsNotNone(result["index"]["stale_reason"])
         self.assertIn("WARNING: index is stale", result["notice"])
         self.assertFalse(any(item["path"] == "billing.py" for item in result["fragments"]))
+
+
+class RipgrepDiscoveryTests(unittest.TestCase):
+    """ripgrep must not be able to hang the server on an inherited stdin.
+
+    The MCP server's stdin is the client's JSON-RPC pipe and never reaches EOF
+    while the session lives. ripgrep reads stdin when it is not a TTY and no path
+    is given, so inheriting that pipe made ``index_project`` block forever and
+    every later tool call time out behind it.
+    """
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        (self.root / "auth.py").write_text("x = 1\n", encoding="utf-8")
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def test_discovery_does_not_block_on_an_open_stdin(self) -> None:
+        import subprocess
+        import sys
+        import textwrap
+
+        # A child whose stdin is an open pipe, exactly like the stdio server. It
+        # calls the real discovery path; if stdin were inherited by ripgrep this
+        # process would hang instead of printing DONE.
+        program = textwrap.dedent(
+            f"""
+            import sys
+            sys.path.insert(0, {str(Path(__file__).resolve().parents[1] / 'src')!r})
+            from pathlib import Path
+            from harness_intelligence.indexer import discover_files
+            files = list(discover_files(Path({str(self.root)!r})))
+            print("DONE", len(files))
+            """
+        )
+        read_fd, write_fd = os.pipe()
+        try:
+            proc = subprocess.Popen(
+                [sys.executable, "-c", program],
+                stdin=read_fd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+            )
+            try:
+                out, _ = proc.communicate(timeout=30)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                self.fail("discover_files blocked when stdin was an open pipe")
+        finally:
+            os.close(read_fd)
+            os.close(write_fd)
+        self.assertIn("DONE 1", out)
 
 
 if __name__ == "__main__":

@@ -46,7 +46,21 @@ class Symbol:
     line: int
 
 
+#: Give up on ripgrep after this many seconds and fall back to os.walk. A wedged
+#: child must never take the MCP server down with it.
+RG_TIMEOUT_SECONDS = 60
+
+
 def _rg_files(root: Path) -> list[Path] | None:
+    """File discovery through ripgrep, or ``None`` to use the os.walk fallback.
+
+    ``stdin`` is pinned to ``DEVNULL`` on purpose. ripgrep reads standard input
+    when it is not a terminal and no path is given (to support piping), and the
+    MCP server's stdin is the client's JSON-RPC pipe - which has no EOF while the
+    session lives. Inheriting it made ripgrep block forever: ``index_project``
+    hung, and every later tool call timed out behind it. A closed stdin plus a
+    timeout keeps discovery bounded no matter who launches the server.
+    """
     try:
         result = subprocess.run(
             [
@@ -58,8 +72,14 @@ def _rg_files(root: Path) -> list[Path] | None:
             capture_output=True,
             text=True,
             encoding="utf-8",
+            stdin=subprocess.DEVNULL,
+            timeout=RG_TIMEOUT_SECONDS,
         )
-    except (FileNotFoundError, subprocess.CalledProcessError):
+    except (
+        FileNotFoundError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+    ):
         return None
     return [root / line for line in result.stdout.splitlines() if line]
 

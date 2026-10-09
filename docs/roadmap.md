@@ -101,7 +101,7 @@
 | `raw`（中文自然语言） | 26.9% | 47.8% | 4 → 7 / 26 | ≈1470 token | 0 |
 | `hinted`（中文 + 标识符） | 65.7% | 69.9% | 12 → 15 / 26 | ≈1480 token | 0 |
 
-验证：`benchmarks/verify.py` 全绿（唯一 `SKIP` 为本机未装 ripgrep，**SKIP 不算通过**）、101 项单元测试通过、基线已随本次改动用 `--write-baseline` 重录并一起 review。逐类召回（informational，不作门）：`hinted` 架构 86.1%、故障定位 87.5%、跨模块 62.5%、单文件 50.0%。
+验证：`benchmarks/verify.py` 全绿（本机已装 ripgrep，`file discovery` 由 SKIP 变 PASS，本轮零 `SKIP`；CI 也已显式安装 ripgrep，避免该断言在流水线里长期只输出 SKIP）、102 项单元测试通过、基线已随本次改动用 `--write-baseline` 重录并一起 review。逐类召回（informational，不作门）：`hinted` 架构 86.1%、故障定位 87.5%、跨模块 62.5%、单文件 50.0%。
 
 **第一步退出标准仍未达到**（`hinted` 69.9%、`raw` 47.8%，门槛 90%）。剩余缺口集中在两类，且都不是"符号提取"问题：
 
