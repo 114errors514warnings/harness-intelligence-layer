@@ -3,6 +3,9 @@
 # Local scratch space; never part of the project. A stray memory record landed
 # here on 2026-10-06 and one `git add -A` would have published it.
 _tmp/
+# Generated per-task A/B runbook (measure.py --runbook). Derived from tasks.jsonl,
+# so committing it would just create a second copy that drifts from the corpus.
+benchmarks/results/ab_runbook.md
 __pycache__/
 *.py[cod]
 .pytest_cache/
