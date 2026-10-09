@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .indexer import index_project
 from .memory import record_memory, search_memory
+from .policy import ensure_allowed
 from .retrieval import get_project_context
 
 
@@ -49,6 +50,7 @@ def main() -> None:
     args = parser.parse_args()
     root = Path(args.project_root)
     try:
+        ensure_allowed(root)
         if args.command == "index":
             _print(index_project(root))
         elif args.command == "context":

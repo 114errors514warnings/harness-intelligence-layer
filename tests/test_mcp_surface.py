@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from datetime import timedelta
 from pathlib import Path
+from unittest import mock
 
 from harness_intelligence.server import create_server
 
@@ -53,6 +54,22 @@ class McpSurfaceTests(unittest.TestCase):
         self.assertEqual(
             set(memory_schema["required"]), {"category", "title", "content"}
         )
+
+    def test_a_denied_project_is_refused_at_the_tool_boundary(self) -> None:
+        # The denylist is enforced by the Harness-facing tools, not the library,
+        # so a global HIL cannot index an abandoned project just because it is open.
+        from harness_intelligence.policy import DENYLIST_ENV
+
+        with tempfile.TemporaryDirectory() as denied:
+            server = create_server()
+            with mock.patch.dict(os.environ, {DENYLIST_ENV: denied}):
+                with self.assertRaises(Exception) as caught:
+                    asyncio.run(
+                        server.call_tool(
+                            "index_project", {"project_root": denied}
+                        )
+                    )
+        self.assertIn("denylist", str(caught.exception))
 
     @staticmethod
     async def _list_tools():

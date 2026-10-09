@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -87,6 +88,14 @@ class CliTests(unittest.TestCase):
             self._run(
                 "memory-record", "chat-log", "Title", "Body", str(self.root)
             )
+        self.assertEqual(caught.exception.code, 2)
+
+    def test_a_denied_project_exits_with_usage_error(self) -> None:
+        from harness_intelligence.policy import DENYLIST_ENV
+
+        with mock.patch.dict(os.environ, {DENYLIST_ENV: str(self.root)}, clear=False):
+            with self.assertRaises(SystemExit) as caught:
+                self._run("index", str(self.root))
         self.assertEqual(caught.exception.code, 2)
 
     def test_index_rejects_missing_directory(self) -> None:

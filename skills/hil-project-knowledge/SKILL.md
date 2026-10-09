@@ -1,6 +1,6 @@
 ---
 name: hil-project-knowledge
-description: Initialize, refresh, query, and curate a project's shared Harness Intelligence Layer index and engineering memory. Use when a user asks to build a project knowledge base, retrieve token-budgeted project context through HIL, refresh a stale HIL index, or preserve a verified engineering fact for reuse across OpenClaw, Cline, and other MCP clients. Do not use for ordinary single-file reads that do not benefit from project retrieval.
+description: Initialize, refresh, query, and curate a project's shared Harness Intelligence Layer index and engineering memory. Use when a user asks to build a project knowledge base, retrieve token-budgeted project context through HIL, refresh a stale HIL index, or preserve a verified engineering fact for reuse across OpenClaw, Cline, OpenCode, and other MCP clients. Do not use for ordinary single-file reads that do not benefit from project retrieval.
 ---
 
 # HIL Project Knowledge
@@ -13,6 +13,7 @@ Use HIL as a shared project-intelligence layer, not as a replacement for the hos
 - Otherwise use the active workspace root.
 - Prefer an absolute path when calling HIL so different Harness working directories resolve the same project.
 - Do not assume the HIL implementation repository is the target project.
+- If a tool reports "project is on the HIL denylist", the project is intentionally blocked for every Harness on this machine (listed in `~/.config/harness-intelligence/denied_projects.txt` or `HIL_DENYLIST`). Do not work around it silently: tell the user, and only if they confirm the project is legitimate, remove the entry and retry.
 
 ## Choose the operation
 
@@ -72,7 +73,7 @@ Changes limited to `.ai-memory` do not require rebuilding the code index because
 
 ## MCP lifecycle
 
-Do not manually start `run_hil_mcp.py`. OpenClaw, Cline, and other configured MCP clients launch the STDIO server when a HIL tool is called and manage its lifetime.
+Do not manually start `run_hil_mcp.py`. OpenClaw, Cline, OpenCode, and other configured MCP clients launch the STDIO server when a HIL tool is called and manage its lifetime.
 
 If HIL tools are unavailable:
 

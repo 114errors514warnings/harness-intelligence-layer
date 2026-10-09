@@ -346,7 +346,53 @@ Ctrl+Shift+P → Developer: Reload Window
 
 VS Code 扩展同样会按需自动启动 HIL，不需要手动运行脚本。
 
-## 7. 索引更新策略
+## 7. 在 OpenCode 中使用
+
+OpenCode V2 的 MCP 配置与 Cline 不同：本地 Server 放在 `mcp.servers.<name>`，`command` 是**数组**，环境变量用 `environment`。写入全局配置 `~/.config/opencode/opencode.json`：
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "hil": {
+        "type": "local",
+        "command": [
+          "C:\\Python314\\python.exe",
+          "D:\\MY\\My Projects\\HarnessIntelligenceLayer\\run_hil_mcp.py"
+        ]
+      }
+    }
+  }
+}
+```
+
+检查连接：
+
+```powershell
+opencode mcp list          # 期望：hil  connected
+```
+
+**有意不设置 `HIL_PROJECT_ROOT`，也不设置 `cwd`**：V2 的本地 Server 默认以工作区为工作目录，因此 HIL 的默认根就是"当前打开的项目"，一份全局配置即可服务所有项目。若写死 `HIL_PROJECT_ROOT`，它只会索引那一个项目。
+
+### 7.1 项目黑名单
+
+全局跟随当前项目带来一个副作用：随手打开一个废弃或临时仓库，也会给它建 `.hil`。为此 HIL 支持一份**本地**黑名单——机制在 `src/harness_intelligence/policy.py`，名单本身放配置目录、不进任何仓库：
+
+```text
+C:\Users\<你>\.config\harness-intelligence\denied_projects.txt
+```
+
+每行一条**绝对路径**（`#` 注释、空行忽略），父目录会连同整棵子树一起拒绝。被拒时四个 MCP 工具与 CLI 都会报错并指出是哪条规则命中的：
+
+```text
+project is on the HIL denylist (D:\MY\My Projects\ConTextOptimizer); remove it from
+C:\Users\Luzern\.config\harness-intelligence\denied_projects.txt or HIL_DENYLIST
+```
+
+也可用环境变量 `HIL_DENYLIST`（多条用系统路径分隔符 `;`）临时追加，`HIL_DENYLIST_FILE` 覆盖名单文件位置。黑名单在 Harness 边界（MCP 工具与 CLI）生效，库层不拦截，这样 `benchmarks/` 仍能有意地测量任意目录。
+
+## 8. 索引更新策略
 
 V0.1 没有文件监听，但索引会自愈：每次检索前比对 schema 版本与文件集指纹（相对路径、大小、mtime），发现新增、删除、重命名或修改文件就自动重建。因此以下情况**通常不需要手动处理**：
 
@@ -367,7 +413,7 @@ python -m harness_intelligence.cli context "任务" $targetProject --no-refresh
 
 仅增加或修改 `.ai-memory` 时不需要重建代码索引，因为该目录已经从代码索引中排除。如果希望项目里的某些派生文件（评测产物、生成的报告等）完全不进入索引，在项目根目录放一个 `.hilignore`，每行一条规则：`benchmarks/results/` 表示排除该目录及其全部内容，`baseline.json` 表示排除任意层级下的同名文件。规则由两条文件发现路径共同遵守（ripgrep 与回退遍历），不会出现"装了 ripgrep 就换一套文件集"的情况。
 
-## 8. 推荐调用策略
+## 9. 推荐调用策略
 
 - 陌生仓库、跨模块任务和故障定位：先调用 `get_project_context`。
 - **把已知的英文标识符写进 `task`**：文件名、符号名、配置项、错误码、CLI 参数。这是当前召回率的最大影响因素：本仓库 26 个真实任务中，纯中文表达平均召回 47.8%，补充标识符后为 69.9%。
@@ -378,7 +424,7 @@ python -m harness_intelligence.cli context "任务" $targetProject --no-refresh
 - HIL 返回结果用于缩小阅读范围，关键修改前仍需核对真实代码。
 - 只有明确为长期事实的内容才写入 `.ai-memory`。`.ai-memory` 位于它所描述的项目内，属于另一个项目的事实对本次检索只是噪声、还要占同一条 token 预算，因此记录时只收本项目事实；每条记录会带上所属项目路径（`project` 字段），让误写可以被检查而不是靠猜。
 
-## 9. 测试与故障排查
+## 10. 测试与故障排查
 
 运行项目测试：
 
@@ -395,14 +441,15 @@ python benchmarks/verify.py               # 跨阶段验证与回归门；SKIP �
 
 1. 确认目标项目的 `.hil/index.json` 存在。
 2. 确认请求中的 `project_root` 指向正确项目。
-3. 运行 `openclaw mcp probe hil --json` 或 `cline config mcp --json`。
-4. 确认 `C:\Python314\python.exe` 与 `run_hil_mcp.py` 存在。
-5. 在 Harness 中显式要求调用 `get_project_context`。
-6. 查看返回值的 `index` 字段：`refreshed` 为 `true` 说明本次已自动重建；若 `notice` 出现 `WARNING: index is stale`，说明该次调用跳过了检查，请去掉 `--no-refresh` 或调用 `index_project`。
-7. 召回明显偏低时，先把 `task` 改写成"一句话 + 英文标识符"再重试，并对照 `benchmarks/` 的基线判断是否属于已知的文档召回缺口。
-8. 如果 Cline VS Code 未显示工具，重新加载 VS Code 窗口。
+3. 运行 `openclaw mcp probe hil --json`、`cline config mcp --json` 或 `opencode mcp list`。
+4. 如果报 "project is on the HIL denylist"，从 `~/.config/harness-intelligence/denied_projects.txt`（或 `HIL_DENYLIST`）里移除该项目。
+5. 确认 `C:\Python314\python.exe` 与 `run_hil_mcp.py` 存在。
+6. 在 Harness 中显式要求调用 `get_project_context`。
+7. 查看返回值的 `index` 字段：`refreshed` 为 `true` 说明本次已自动重建；若 `notice` 出现 `WARNING: index is stale`，说明该次调用跳过了检查，请去掉 `--no-refresh` 或调用 `index_project`。
+8. 召回明显偏低时，先把 `task` 改写成"一句话 + 英文标识符"再重试，并对照 `benchmarks/` 的基线判断是否属于已知的文档召回缺口。
+9. 如果 Cline VS Code 未显示工具，重新加载 VS Code 窗口；OpenCode 中则用 `opencode mcp list` 确认连接状态。
 
-## 10. Token 优化验证
+## 11. Token 优化验证
 
 HIL 能减少重复搜索，但不能在没有对照数据时保证固定节省比例。正式评估应对同一批任务比较：
 

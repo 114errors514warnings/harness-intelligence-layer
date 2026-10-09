@@ -54,10 +54,10 @@ python -m venv .venv
 
 ## Harness 接入
 
-MCP 服务使用 stdio。把 `python run_hil_mcp.py`（或安装后的 `hil-mcp`）配置到 OpenClaw/Cline/Codex 的 MCP Server 列表，字段名以各 Harness 的配置格式为准，要点是三条：
+MCP 服务使用 stdio。把 `python run_hil_mcp.py`（或安装后的 `hil-mcp`）配置到 OpenClaw/Cline/Codex/OpenCode 的 MCP Server 列表，字段名以各 Harness 的配置格式为准，要点是三条：
 
 - `command` 指向解释器绝对路径，`args` 指向 `run_hil_mcp.py` 绝对路径；
-- `env.HIL_PROJECT_ROOT` 指定默认目标项目，未传参时四个工具都用它；
+- `env.HIL_PROJECT_ROOT` 指定默认目标项目，未传参时四个工具都用它；**不设置则默认取进程的工作目录**，从而跟随当前打开的 Harness 项目（OpenCode 推荐这种"一份全局配置服务所有项目"的接法，见 `docs/usage.md` §7）；
 - `cwd` 设为 HIL 仓库根目录，`requestTimeoutMs` 建议不小于 60000。
 
 ```json
@@ -69,6 +69,8 @@ MCP 服务使用 stdio。把 `python run_hil_mcp.py`（或安装后的 `hil-mcp`
   "requestTimeoutMs": 60000
 }
 ```
+
+若采用"跟随当前项目"的接法，建议维护 `~/.config/harness-intelligence/denied_projects.txt` 列出不该索引的项目（每行一条绝对路径），避免随手打开废弃仓库也给它建 `.hil`；被拒时工具会报错并指出是哪条规则命中的。
 
 调用策略建议：
 

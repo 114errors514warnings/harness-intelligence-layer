@@ -81,13 +81,13 @@ MCP 接口有意保持精简，不提供通用 Shell、文件写入、会话或�
 
 ## 6. 当前部署状态
 
-截至 2026-10-05：
+截至 2026-10-09：
 
-- 索引文件为 `.hil/index.json`，schema 版本 2，覆盖 29 个文本文件、223 个符号；
+- 索引文件为 `.hil/index.json`，schema 版本 2，覆盖 31 个文本文件、223 个符号；
 - 索引自愈与陈旧可见性已实现，并有单元测试覆盖；跨阶段回归门由 `benchmarks/verify.py` 与 `benchmarks/results/baseline.json` 把关；
 - 工程知识库已建立，包含架构、技术决策与缺陷记录；
-- OpenClaw CLI 2026.9.5、Cline CLI 3.0.64、Cline VS Code 扩展 4.1.20 均已注册 `hil`；
-- OpenClaw 实际探测到 4 个 HIL 工具且无诊断错误；
+- OpenClaw CLI 2026.9.5、Cline CLI 3.0.64、Cline VS Code 扩展 4.1.20、OpenCode v2.0.24 均已注册 `hil`；OpenCode 采用一份全局配置、默认跟随当前打开的项目（`docs/usage.md` §7）；
+- OpenClaw 实际探测到 4 个 HIL 工具且无诊断错误；OpenCode 本机 `mcp list` 显示 `hil connected`，四个工具可调用；
 - 104 项 Python 单元测试通过，其中包含 MCP 四工具注册与 stdio 端到端往返；
 - GitHub Actions 在 Python 3.11 与 3.13 上运行单元测试、Phase 0 任务集与回归门；
 - Phase 0 任务集（26 条）与统计脚本已建立，并已完成 Phase 2 的两处检索修正与跨语言词面桥接：中文词项切分与片段级评分把 `raw` 从 26.9% 提升到 47.8%，中英词表桥接再把 `raw` 提升到 68.9%、`hinted` 由 69.9% 微降到 68.9%（均仍未达到 90% 目标，缺口归因见 `docs/roadmap.md` §4）。

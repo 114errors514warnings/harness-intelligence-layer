@@ -5,6 +5,7 @@ from pathlib import Path
 
 from .indexer import index_project as build_index
 from .memory import record_memory, search_memory
+from .policy import ensure_allowed
 from .retrieval import get_project_context as build_context
 
 
@@ -29,17 +30,23 @@ def create_server():
     @mcp.tool()
     def index_project(project_root: str = "") -> dict:
         """Build or refresh the lightweight project symbol index."""
-        return build_index(project_root or _default_root())
+        root = project_root or _default_root()
+        ensure_allowed(root)
+        return build_index(root)
 
     @mcp.tool()
     def get_project_context(task: str, project_root: str = "", token_budget: int = 4000) -> dict:
         """Return high-value code fragments and project facts within a token budget."""
-        return build_context(task, project_root or _default_root(), token_budget)
+        root = project_root or _default_root()
+        ensure_allowed(root)
+        return build_context(task, root, token_budget)
 
     @mcp.tool()
     def search_project_memory(query: str, project_root: str = "", limit: int = 5) -> list[dict]:
         """Search curated, cross-harness engineering facts for this project."""
-        return search_memory(query, project_root or _default_root(), limit)
+        root = project_root or _default_root()
+        ensure_allowed(root)
+        return search_memory(query, root, limit)
 
     @mcp.tool()
     def record_project_memory(
@@ -51,7 +58,9 @@ def create_server():
         source: str | None = None,
     ) -> dict:
         """Store a verified reusable fact, not a conversation transcript or secret."""
-        return record_memory(category, title, content, project_root or _default_root(), tags, source)
+        root = project_root or _default_root()
+        ensure_allowed(root)
+        return record_memory(category, title, content, root, tags, source)
 
     return mcp
 
