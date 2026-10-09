@@ -101,7 +101,7 @@
 | `raw`（中文自然语言） | 26.9% | 47.8% | 4 → 7 / 26 | ≈1470 token | 0 |
 | `hinted`（中文 + 标识符） | 65.7% | 69.9% | 12 → 15 / 26 | ≈1480 token | 0 |
 
-验证：`benchmarks/verify.py` 全绿（本机已装 ripgrep，`file discovery` 由 SKIP 变 PASS，本轮零 `SKIP`；CI 也已显式安装 ripgrep，避免该断言在流水线里长期只输出 SKIP）、102 项单元测试通过、基线已随本次改动用 `--write-baseline` 重录并一起 review。逐类召回（informational，不作门）：`hinted` 架构 86.1%、故障定位 87.5%、跨模块 62.5%、单文件 50.0%。
+验证：`benchmarks/verify.py` 全绿（本机已装 ripgrep，`file discovery` 由 SKIP 变 PASS，本轮零 `SKIP`；CI 也已显式安装 ripgrep，避免该断言在流水线里长期只输出 SKIP）、104 项单元测试通过、基线已随本次改动用 `--write-baseline` 重录并一起 review。逐类召回（informational，不作门）：`hinted` 架构 86.1%、故障定位 87.5%、跨模块 62.5%、单文件 50.0%。
 
 **第一步退出标准仍未达到**（`hinted` 69.9%、`raw` 47.8%，门槛 90%）。剩余缺口集中在两类，且都不是"符号提取"问题：
 
@@ -191,7 +191,7 @@
 
 1. **已完成**：修正两处已量化的检索缺陷——中文词项切分（连续中文串拆为 2/3 字 n-gram）与文档片段排序（片段级评分 + 受 token 上限约束且互不重叠的窗口）。每项都用 `benchmarks/measure.py` 的 `raw` / `hinted` 两次运行验证，并跑 `benchmarks/verify.py` 确认回归门、包不变量与索引覆盖仍成立；基线已用 `--write-baseline` 随改动重录。结果：`raw` 26.9% → 47.8%、`hinted` 65.7% → 69.9%。
 2. **已完成**：跨语言词面桥接——`terms.GLOSSARY` 把中文短语映射为英文查询词，只扩展查询侧；桥接词不享受路径加成、内容命中按半权计。结果：`raw` 47.8% → 68.9%（+21.1pp）、`hinted` 69.9% → 68.9%（−1.0pp，回归门容差内）。**仍低于 90% 退出标准**，剩余缺口与逐题回归见 §4。
-3. 为 OpenClaw/Cline 各完成至少 10 个 native 与 HIL 对照任务，填写 `benchmarks/results/ab.jsonl`。native 臂的采集与检索改动无关，可立即并行开始；HIL 臂在召回达到可用水平之前不填，否则只是重复测量已知的失败。
+3. 为 OpenClaw/Cline 各完成至少 10 个 native 与 HIL 对照任务，填写 `benchmarks/results/ab.jsonl`。逐题操作卡由 `python benchmarks/measure.py --runbook benchmarks/results/ab_runbook.md` 从语料生成（不 commit），列出 native/hinted 提示、成功判据与评分清单。native 臂的采集与检索改动无关，可立即并行开始；HIL 臂在召回达到可用水平之前不填，否则只是重复测量已知的失败。本机 Cline 会话库（`~/.cline/data/sessions/*`，含 `metadata.tokensIn/tokensOut`）可作取数佐证，但当前只有整段多轮会话，不足以填入逐题 A/B。
 4. 汇总未召回文件、重复片段和无关上下文（脚本已输出这些字段）；优先补词表尚未覆盖的中英对，并处理文档/测试文件的预算竞争（`HIL-022` 的符号窗被挤出是两个变体共有的回归）。
 5. 召回稳定达到 90% 后，再决定是否投入 Tree-sitter 与增量索引。**现有证据提示 Tree-sitter 解决不了剩余缺口**：未召回的不是"符号没被提取"，而是中文提问与英文实现之间缺少词面重叠（§4）；下一步更可能落在调用策略与跨语言匹配（§6），而不是更精细的符号提取。
 5. 达到数据量门槛后再讨论 Validator 和 Model Router。

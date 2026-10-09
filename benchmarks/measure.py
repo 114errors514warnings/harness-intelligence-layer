@@ -232,6 +232,72 @@ def print_table(rows: list[dict]) -> None:
         )
 
 
+def write_runbook(
+    tasks: list[dict],
+    hints: dict[str, str],
+    path: Path,
+    budget: int,
+    harnesses: list[str],
+) -> None:
+    """Emit a per-task operating card for the human A/B collection.
+
+    The worksheet says *what* to fill; this says *how to fill it* without the
+    numbers quietly drifting from the corpus. It is generated from tasks.jsonl so
+    a new task cannot be missing a card, and it repeats the rule that decides the
+    worksheet: the token number comes from harness session usage, never a guess.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    out: list[str] = [
+        "# Phase 0 A/B runbook (generated - do not edit by hand)",
+        "",
+        f"Tasks: {len(tasks)} | harnesses: {', '.join(harnesses)} | budget: {budget} tokens",
+        "",
+        "## Rules that make the numbers mean something",
+        "",
+        "1. Token counts come from the harness session usage, not an estimate. Paste",
+        "   the exact place you read them (menu, log line) into `evidence`, with the date.",
+        "2. Run the native arm with no HIL tools enabled. Run the HIL arm with HIL",
+        "   enabled and call `get_project_context` once at the start, then work normally.",
+        "3. Judge `success` against the task's stated criteria, not against 'the agent",
+        "   seemed confident'. A wrong answer is `false`.",
+        "4. The `Check` list below is for grading by hand. Never paste it into the",
+        "   native arm; it names the answer files and symbols.",
+        "5. Fill `benchmarks/results/ab.jsonl` (the worksheet) and run",
+        "   `python benchmarks/measure.py --compare benchmarks/results/ab.jsonl "
+        "--recall-file <hil_report.json>`.",
+        "",
+        "## Per-task cards",
+        "",
+    ]
+    for task in tasks:
+        check_files = ", ".join(f"`{item}`" for item in task["required_files"]) or "-"
+        check_symbols = ", ".join(f"`{item}`" for item in task["required_symbols"]) or "-"
+        out.extend(
+            [
+                f"### {task['id']} - {task['category']}",
+                "",
+                f"- Native prompt (no HIL): `{task['prompt']}`",
+                f"- Hinted prompt (identifier-rich, optional): `{hints.get(task['id'], '-')}`",
+                f"- HIL call: `get_project_context(task=<prompt>, token_budget={budget})`",
+                f"- Success criteria: {task.get('success_criteria', '-')}",
+                f"- Check - files that must be found: {check_files}",
+                f"- Check - symbols that must appear: {check_symbols}",
+                f"- Provenance: {task.get('provenance', '-')}",
+                "",
+                "| harness | arm | input_tokens | success | evidence (where + date) |",
+                "|---|---|---|---|---|",
+            ]
+        )
+        for harness in harnesses:
+            out.append(f"| {harness} | native | _fill_ | _fill_ | _fill_ |")
+            out.append(f"| {harness} | hil | _fill_ | _fill_ | _fill_ |")
+        out.append("")
+    path.write_text("\n".join(out) + "\n", encoding="utf-8")
+    print(f"runbook written: {path}")
+    print(f"cards: {len(tasks)} tasks x {len(harnesses)} harnesses")
+    print("fill benchmarks/results/ab.jsonl from these cards, then run --compare")
+
+
 def write_worksheet(tasks: list[dict], path: Path, harnesses: list[str]) -> None:
     """Emit an empty A/B worksheet, so real measurements can be recorded per task."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -343,6 +409,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--worksheet", default="", help="write an empty A/B worksheet and exit")
     parser.add_argument(
+        "--runbook",
+        default="",
+        help="write a per-task A/B runbook (how to fill the worksheet) and exit",
+    )
+    parser.add_argument(
         "--harness",
         action="append",
         default=[],
@@ -360,6 +431,18 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.worksheet:
         write_worksheet(tasks, Path(args.worksheet), args.harness or ["openclaw", "cline"])
+        return 0
+
+    if args.runbook:
+        # The runbook always lists both the native and hinted prompt, so it reads
+        # the hints regardless of --variant.
+        write_runbook(
+            load_tasks(Path(args.tasks)),
+            load_hints(Path(args.hints)),
+            Path(args.runbook),
+            args.budget,
+            args.harness or ["openclaw", "cline"],
+        )
         return 0
 
     if args.compare:

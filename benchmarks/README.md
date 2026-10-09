@@ -54,6 +54,7 @@ python benchmarks/measure.py --budget 1500 --label hil
 | `--variant raw\|hinted` | 任务表达：原始表达 vs 标识符化表达，默认 `raw` |
 | `--out PATH` | 报告输出路径，默认 `.hil/results/`（该目录不在索引范围内） |
 | `--worksheet PATH` | 生成空白 A/B 表并退出 |
+| `--runbook PATH` | 生成逐题 A/B 操作卡（含 native/hinted 提示与评分清单）并退出 |
 | `--compare PATH` | 校验已填写的 A/B 表并按 roadmap §5 门槛判定 |
 
 ## 4. 任务表达对照（调用策略）
@@ -87,11 +88,14 @@ python benchmarks/measure.py --budget 1500 --label baseline --variant hinted
 
 ## 5. A/B 对照实验
 
-A/B 表的 token 数必须从 Harness 会话用量中读取，`measure.py` 无法替你生成。先生成空白表：
+A/B 表的 token 数必须从 Harness 会话用量中读取，`measure.py` 无法替你生成。先生成空白表，再生成一张**逐题操作卡**（由 `tasks.jsonl` 生成，因此不会与语料漂移）：
 
 ```powershell
 python benchmarks/measure.py --worksheet benchmarks/results/ab.jsonl --harness openclaw --harness cline
+python benchmarks/measure.py --runbook   benchmarks/results/ab_runbook.md --harness openclaw --harness cline
 ```
+
+`ab_runbook.md` 是派生文件（不 commit），每题一张卡：native 提示、可选 hinted 提示、HIL 调用、成功判据，以及仅供评分的"必须找到的文件/符号"清单——清单即答案，**不要粘进 native 臂**。照卡填表即可。
 
 逐行填写后形如（**下面是格式示例，不是真实数据**）：
 

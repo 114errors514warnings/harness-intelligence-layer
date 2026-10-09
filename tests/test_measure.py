@@ -178,7 +178,44 @@ class RepositoryCorpusTests(unittest.TestCase):
         self.assertEqual(leaked, [])
 
 
-class ArtifactLayoutTests(unittest.TestCase):
+class RunbookTests(unittest.TestCase):
+    """The runbook is generated from the corpus, so it cannot drift from it."""
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def test_a_card_is_written_for_every_task_and_harness(self) -> None:
+        tasks = [
+            _task("T-01", success_criteria="find Example"),
+            _task("T-02", category="architecture"),
+        ]
+        hints = {"T-01": "where is Example", "T-02": "what is the design"}
+        path = self.root / "runbook.md"
+        measure.write_runbook(tasks, hints, path, 1500, ["openclaw", "cline"])
+        text = path.read_text(encoding="utf-8")
+        for task in tasks:
+            self.assertIn(f"### {task['id']} -", text)
+        # One card per task, and every card lists both arms for both harnesses.
+        self.assertEqual(text.count("### T-01 -"), 1)
+        self.assertEqual(text.count("| openclaw | native |"), 2)
+        self.assertEqual(text.count("| cline | hil |"), 2)
+        self.assertIn("1500", text)
+
+    def test_the_runbook_names_the_check_files_the_native_arm_must_not_see(self) -> None:
+        # The checks are the answer key; the runbook must say so, or they leak into
+        # the native arm and the comparison measures nothing.
+        path = self.root / "runbook.md"
+        measure.write_runbook([_task("T-01")], {"T-01": "hint"}, path, 1500, ["openclaw"])
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("Never paste it into the", text)
+        self.assertIn("`src/example.py`", text)
+
+
+
     """Guards the defect that justified this file.
 
     measure.py used to write its per-run report into ``benchmarks/results/``,

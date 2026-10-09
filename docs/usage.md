@@ -385,7 +385,7 @@ python -m harness_intelligence.cli context "任务" $targetProject --no-refresh
 ```powershell
 Set-Location -LiteralPath "D:\MY\My Projects\HarnessIntelligenceLayer"
 $env:PYTHONPATH = "src"
-python -m unittest discover -s tests -v   # 102 项，含 MCP stdio 端到端往返、评测门与语料自洽性
+python -m unittest discover -s tests -v   # 104 项，含 MCP stdio 端到端往返、评测门与语料自洽性
 python benchmarks/verify.py               # 跨阶段验证与回归门；SKIP 表示本机无法运行，不计为通过
 ```
 
