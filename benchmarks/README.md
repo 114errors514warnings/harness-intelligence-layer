@@ -176,7 +176,7 @@ python benchmarks/verify.py --write-baseline             # 有意改变检索后
 - HIL 侧测量：可直接复现（本次运行 34 个文件、`raw` 与 `hinted` 两次运行，另可用 `--embedding` 增加语义重排臂）；
 - 检索修正：三轮。第一轮 `raw` 26.9% → 47.8%、`hinted` 65.7% → 69.9%；第二轮（路径匹配精确化、消除被窗口体积稀释的文件级加成、点名标识符窗口优先发射、每文件一个窄窗口）；第三轮（点名窗口优先于密度、模块常量纳入符号、`INDEX_VERSION` 升到 3）。50 题上 `raw` → **50.8%**、`hinted` → **98.5%**。`hinted` 已达 90% 退出标准，`raw` 剩余缺口为跨语言，归因见 `docs/roadmap.md` §4；
 - 调用策略对照：已完成，标识符化表达在当前检索下把平均召回从 50.8% 提升到 98.5%（达标 16 → 48 / 50）；
-- **首次真实跨 Harness A/B 已通过全部门槛**（2026-10-11，OpenClaw + deepseek-v4-flash，50 题 × 2 臂，双臂有效性经 transcript 核验）：中位输入 token 降低 **43.1%**、召回 98.5%、成功率 100% → 100%、平均重试 0→0、跨 Harness 复用 2/2 全部达标，`--compare` 退出码 0。数据与回执见 `results/ab.jsonl` 与 `results/reuse.json`；
+- **首次真实跨 Harness A/B（2026-10-11，OpenClaw + deepseek-v4-flash，50 题 × 2 臂，输入为 `raw` 纯中文提问，双臂有效性经 transcript 核验）**：中位输入 token 降低 **43.1%**、成功率 100% → 100%、平均重试 0→0、跨 Harness 复用 2/2 达标；但 **Context Recall 50.8% < 90%，门槛失败**，`--compare` 退出码 1。注意该 token 下降不能归因于检索质量（模型自带探索也能答对），见 `docs/roadmap.md` §5。数据与回执见 `results/ab.jsonl` 与 `results/reuse.json`；
 - Phase 3 就绪：判定机制已就绪（随机分组 + seed、五道门槛、工具结果与 prompt-cache 记录、跨 Harness 复用回执），见 `docs/roadmap.md` §5「Phase 3 就绪状态」；`hinted` 召回已达标，HIL 臂具备采集条件；
 - Phase 4 证据门：已建立（`evidence.py`），可选语义重排已实现并默认为关，见 §8；
 - 回归门：已建立（`verify.py` + `results/baseline.json`），并接入 CI；本轮为**有意的检索改动**，基线已用 `--write-baseline` 重录；

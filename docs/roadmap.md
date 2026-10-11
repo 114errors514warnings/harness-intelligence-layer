@@ -184,31 +184,35 @@
 
 判定门槛全部就位：中位 token 降低 ≥20%、Recall ≥90%、成功率下降 ≤2pp、**平均重试次数不增加**、**跨 Harness 复用成功**（后两项为本次新增）。缺少 `--reuse-file` 时复用门只报告不拦截，以兼容 Phase 3 之前已填写的旧表；一旦提供即纳入判定。
 
-数据状态：**已完成首次真实采集并通过全部门槛**（2026-10-11）。`benchmarks/results/ab.jsonl` 的 `openclaw` 行由脚本从真实 Harness 会话写入，共 50 组 native/HIL 数据。
+数据状态：**已完成首次真实采集**（2026-10-11）。`benchmarks/results/ab.jsonl` 的 `openclaw` 行由脚本从真实 Harness 会话写入，共 50 组 native/HIL 数据。
 
-### Phase 3 首次真实 A/B（2026-10-11，结论：通过）
+### Phase 3 首次真实 A/B（2026-10-11，结论：**未通过——召回门槛失败**）
+
+> **更正（2026-10-12）**：本记录初稿把 `hinted` 召回归档（98.5%）填进了 `--recall-file`，但这 50 组运行实际使用的是 `tasks.jsonl` 的 **`raw` prompt**（用户会自然写出的中文提问）。判定必须与运行口径一致，因此正确值是 `raw` 召回 **50.8%**。用正确口径复算后 **Context Recall 门槛失败**，Phase 3 未通过。这条更正本身也说明：拿 `hinted` 达标去代表整体通过，是把测量口径当成了产品能力。
 
 方法与有效性：
 
 - 被测 Harness 为本机 OpenClaw 网关（`127.0.0.1:18789`）跑 `deepseek-v4-flash`；为让 HIL 臂真实调用，用 `openclaw mcp add` 注册了 `hil`（指向本仓库 `run_hil_mcp.py`）+ `mcp reload`，**未重启网关**，可 `mcp unset hil` 撤销。
-- **50 题** × 2 臂，**每次运行使用全新 session id**，避免历史上下文污染；token 取自 agent 自己返回的 `usage`，`input_tokens` 记 `input + cacheRead`（总模型输入），`cache_read_tokens` 单独记录以分辨缓存与检索收益。
+- **50 题** × 2 臂，**输入使用 `raw`（纯中文）prompt**，即用户自然提问、不做标识符改写——这是本项目要服务的正常输入；**每次运行使用全新 session id**；token 取自 agent 自己返回的 `usage`，`input_tokens` 记 `input + cacheRead`（总模型输入），`cache_read_tokens` 单独记录以分辨缓存与检索收益。
 - 臂有效性经 transcript 的 `toolResult.toolName` 核验：HIL 臂每轮都真的调用了 `get_project_context`，native 臂一次都没有。
 - 跨 Harness 复用由两个真实 Harness 双向完成：OpenClaw 经 `hil__record_project_memory` 写入、OpenCode 经自己的 `hil` MCP 读回；反向亦然。回执见 `benchmarks/results/reuse.json`。
 - 未做随机分组（固定 native → hil），单轮运行因此 `retries` 恒为 0（该门槛通过但没有信息量）。
 
-判定（`python benchmarks/measure.py --compare benchmarks/results/ab.jsonl --recall-file <hil_const_hinted_*.json> --reuse-file benchmarks/results/reuse.json`，**退出码 0**）：
+判定（`--recall-file` 使用与运行口径一致的 `raw` 召回归档，`--reuse-file benchmarks/results/reuse.json`，**退出码 1**）：
 
 | 门槛 | 结果 | 判定 |
 |---|---|---|
 | 中位输入 token 降低 ≥ 20% | **43.1%** | PASS |
-| Context Recall ≥ 90% | **98.5%** | PASS |
+| Context Recall ≥ 90% | **50.8%**（`raw`，与运行口径一致） | **FAIL** |
 | 平均重试次数不增加 | 0.00 → 0.00 | PASS（单轮，无信息量） |
 | Task Success Rate 下降 ≤ 2pp | 100% → 100%（0.0pp） | PASS |
 | 跨 Harness 记忆复用 | 2/2 事实被另一个 Harness 读回 | PASS |
 
 参考量：中位工具结果体积 12317 → 3895 token；中位 prompt-cache 读取量 150592 → 89216（用 `cache_read_tokens` 记录，避免把缓存收益误记为检索收益）。
 
-过程与修复：首轮 26 题时 HIL 臂答错 5 题（成功率掉 19.2pp），根因是"只发射最密的那个窗口"，模型拿到文件却拿不到要点；改为**点名标识符窗口优先发射**后回到 96.2%。扩建到 50 题后又有 2 题失败（`HIL-011` 的 CLI 退出码 2、`HIL-035` 的 `MAX_TERMS`），根因是**模块常量没有被提取成符号**，无法命中"点名窗口优先"规则；新增 `constant` 提取模式并把 `INDEX_VERSION` 升到 3 后，两题均答对。
+**为什么"成功率 100%"不等于"检索可用"**：两臂都在 1M 上下文、自带文件工具的 agent 上运行。`raw` 提问下 HIL 只召回 50.8%，但模型自己探索也能答对。所以本次 token 下降**不能归因于检索质量**——它主要来自"HIL 臂被要求先取上下文再作答"这一调用差异（§5 计划里要分离的正是这个）。召回门槛失败说明：**对用户正常写出的中文提问，HIL 目前并不真正够用。**
+
+过程与修复（这些修复仍然有效，但它们服务的是含标识符的表达）：首轮 26 题时 HIL 臂答错 5 题（成功率掉 19.2pp），根因是"只发射最密的那个窗口"，模型拿到文件却拿不到要点；改为**点名标识符窗口优先发射**后回到 96.2%。扩建到 50 题后又有 2 题失败（`HIL-011` 的 CLI 退出码 2、`HIL-035` 的 `MAX_TERMS`），根因是**模块常量没有被提取成符号**；新增 `constant` 提取模式并把 `INDEX_VERSION` 升到 3 后两题均答对。这些修复把 `hinted` 召回推到 98.5%，但**完全没有改变 `raw` 的 50.8%**——`raw` 的缺口是跨语言，见 §7 **Phase 5**。
 
 **样本量说明**：50 题的粒度是 2.0pp/题，因此 2pp 预算现在可分辨（此前 26 题是 3.85pp/题，无法分辨）。
 
@@ -246,7 +250,7 @@
 
 ## 7. Phase 5：跨语言召回（待做）
 
-进入条件：Phase 3 已通过（五道门槛，`hinted` 98.5%），但 `raw`（纯中文、不写标识符）在 50 题上只有 **50.8%**（16/50）。这是**唯一**未达标的召回变体，根因已定位（§4）：中文提问与英文实现之间缺少词面重叠。Phase 4 ①（可选 Embedding + Reranker）是这条缺口的"重"解法；Phase 5 先做**轻、可审计、可回退**的跨语言桥，避免为一种不推荐的提问方式直接上重基础设施。
+进入条件：Phase 3 的**召回门槛失败**，而失败原因正是 **`raw`（纯中文、用户自然写出的提问）只有 50.8%**。`raw` 不是"可选写法"——它是用户真正会用的输入；`hinted`（把标识符写进查询）只是诊断用的上限参考，不能当作产品能力。根因已定位（§4）：中文提问与英文实现之间缺少词面重叠。Phase 4 ①（可选 Embedding + Reranker）是这条缺口的"重"解法；Phase 5 先做**轻、可审计、可回退**的跨语言桥，用最低代价把**正常使用**补齐。
 
 目标（与 Phase 2/3 同一口径）：
 
