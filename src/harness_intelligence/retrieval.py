@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from .embeddings import cosine, resolve_backend
 from .indexer import load_index, read_text
 from .memory import search_memory
 from .terms import content_pattern, extract_terms, identifier_parts
@@ -203,17 +204,61 @@ def _entry_candidates(
     return candidates
 
 
+#: Caps for the optional semantic re-rank (see ``docs/roadmap.md`` §6). Only the
+#: strongest lexical candidates are embedded, so a large repository cannot turn
+#: one query into hundreds of model calls: lexical order still decides who is
+#: even eligible to be re-ordered.
+RERANK_POOL = 40
+
+#: Weight of the cosine signal against the normalised lexical score. The lexical
+#: score stays the primary evidence; an embedding only re-orders the shortlist
+#: that lexical retrieval already selected.
+EMBEDDING_WEIGHT = 0.5
+
+
+def _rerank(candidates: list[Candidate], task: str, backend) -> int:
+    """Re-order the lexical shortlist by similarity to ``task``.
+
+    Returns how many candidates were re-ordered. Raises only if the backend
+    itself raises; the caller degrades to the lexical order in that case.
+    """
+    pool = candidates[:RERANK_POOL]
+    if len(pool) < 2:
+        return 0
+    vectors = backend.embed([task, *(candidate.content for candidate in pool)])
+    task_vector = vectors[0]
+    lexical = [candidate.score / max(candidate.token_cost, 1) for candidate in pool]
+    best = max(lexical) or 1.0
+    blended = []
+    for candidate, lexical_score, vector in zip(pool, lexical, vectors[1:]):
+        similarity = cosine(task_vector, vector)
+        weight = EMBEDDING_WEIGHT * similarity + (1.0 - EMBEDDING_WEIGHT) * (lexical_score / best)
+        blended.append((weight, lexical_score, candidate))
+    blended.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    for weight, _, candidate in blended:
+        candidate.reasons.append(f"embedding:{weight:.2f}")
+    candidates[: len(pool)] = [candidate for _, _, candidate in blended]
+    return len(pool)
+
+
 def get_project_context(
     task: str,
     project_root: str | Path,
     token_budget: int = 4000,
     refresh_index: bool = True,
+    embedding: str | None = None,
 ) -> dict:
     """Build a token-budgeted context package for ``task``.
 
     ``refresh_index`` re-checks the stored index against the working tree and
     rebuilds it when the file set drifted (default). Pass ``False`` only when
     the caller just indexed or deliberately wants to skip the freshness walk.
+
+    ``embedding`` overrides the ``HIL_EMBEDDINGS`` environment variable for this
+    call: ``off`` (default) keeps pure lexical retrieval, ``auto``/``on`` probe
+    the optional backends, and ``hash`` selects the offline backend. A backend
+    that is unavailable, or that raises mid-query, degrades to the lexical order
+    instead of failing the call.
     """
     if token_budget < 200:
         raise ValueError("token_budget must be at least 200")
@@ -235,7 +280,25 @@ def get_project_context(
             )
         )
 
+    backend, embedding_reason = resolve_backend(embedding)
+    candidates.sort(key=lambda item: (item.score / max(item.token_cost, 1), item.score), reverse=True)
+    retrieval = {
+        "mode": "lexical",
+        "backend": None,
+        "detail": embedding_reason,
+        "reranked": 0,
+    }
+    if backend is not None:
+        try:
+            reranked = _rerank(candidates, task, backend)
+        except Exception as exc:  # noqa: BLE001 - a backend failure must degrade, not raise
+            retrieval["detail"] = f"{embedding_reason}; re-rank failed ({exc.__class__.__name__})"
+        else:
+            if reranked:
+                retrieval.update(mode="embedding", backend=backend.name, reranked=reranked)
+
     memory_candidates = search_memory(task, root, limit=3)
+
     memories = []
     used = 0
     memory_cap = token_budget // 4
@@ -270,6 +333,22 @@ def get_project_context(
         "stale_reason": index.get("stale_reason"),
     }
     notice = "Lexical V0.1 retrieval; verify critical symbols before editing."
+    if retrieval["mode"] == "embedding":
+        notice = (
+            f"Re-ranked by the {retrieval['backend']} backend; verify critical symbols "
+            "before editing."
+        )
+    # Roadmap §5 asks for an explicit fallback when HIL recall is insufficient:
+    # a harness must be able to tell "nothing matched" from "the package is
+    # small", instead of treating an empty package as an answer.
+    sufficient = bool(selected)
+    fallback = None
+    if not sufficient:
+        fallback = (
+            "no indexed fragment matched the query terms; use the harness's native "
+            "search rather than treating this empty package as an answer"
+        )
+        notice += " WARNING: no fragment matched - fall back to native search."
     if index_status["refreshed"]:
         notice += f" Index refreshed automatically ({index_status['stale_reason']})."
     elif index_status["stale_reason"]:
@@ -286,5 +365,8 @@ def get_project_context(
         "fragments": selected,
         "memories": memories,
         "index": index_status,
+        "retrieval": retrieval,
+        "sufficient": sufficient,
+        "fallback": fallback,
         "notice": notice,
     }

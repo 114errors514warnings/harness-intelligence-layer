@@ -77,6 +77,8 @@ MCP 服务使用 stdio。把 `python run_hil_mcp.py`（或安装后的 `hil-mcp`
 3. 新增、删除或重命名文件后不必手动重建索引，检索会自愈；只有需要显式确认时再调用 `index_project`。
 4. 只有确定为可复用工程事实时才调用 `record_project_memory`。
 5. 单文件、路径明确的任务直接读取文件，避免增加一次 MCP 往返。
+6. 如果 `get_project_context` 返回 `sufficient: false`，说明本次没有任何片段命中，应改用 Harness 原生搜索；`fallback` 字段会说明原因，不要把空包当成"项目里没有相关内容"。
+7. 可选语义重排默认关闭（`HIL_EMBEDDINGS`，或 CLI `--embedding`）。它只在配置了本地多语言模型或 HTTP 端点时才有意义，任何不可用都会回退本地词法检索；其召回收益必须先由 `benchmarks/measure.py --embedding auto` 量化。
 
 V0.1 的词法检索对任务表达敏感，实测（`benchmarks/`，26 个真实任务、1500 token 预算、同一索引）：
 
@@ -91,15 +93,19 @@ V0.1 的词法检索对任务表达敏感，实测（`benchmarks/`，26 个真�
 
 ```powershell
 $env:PYTHONPATH = "src"
-python -m unittest discover -s tests -v      # 95 项单元测试，含 MCP stdio 端到端往返
+python -m unittest discover -s tests -v      # 128 项单元测试，含 MCP stdio 端到端往返、跨 Harness 记忆复用
 
 # Phase 0 评测：任务集召回、包体积、延迟、重复片段
 python benchmarks/measure.py --budget 1500 --label baseline --variant raw
 python benchmarks/measure.py --budget 1500 --label baseline --variant hinted
+python benchmarks/measure.py --budget 1500 --label baseline --variant hinted --embedding auto
 
 # 跨阶段验证与回归门（任务集一致性、两条文件发现路径一致、包不变量与真实行号、
-# 分类召回、相对基线的回归门、索引覆盖、--compare 三种退出码）
+# 分类召回、相对基线的回归门、索引覆盖、跨 Harness 复用、--compare 的退出码自检）
 python benchmarks/verify.py
+
+# Phase 4 证据门：四条「按证据扩展」触发条件是否成立
+python benchmarks/evidence.py
 ```
 
 `.github/workflows/ci.yml` 在 Python 3.11 / 3.13 上运行单元测试、Phase 0 任务集和 `verify.py` 回归门（基线为 `benchmarks/results/baseline.json`；`SKIP` 表示该环境无法运行某项检查，不计为通过）。token 节省比例只能在 Harness 真实会话中按 `benchmarks/README.md` 的 A/B 流程测量，本仓库不提供预设数字。

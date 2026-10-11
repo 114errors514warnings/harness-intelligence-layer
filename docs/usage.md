@@ -231,7 +231,7 @@ get_project_context(
 )
 ```
 
-返回结果中的 `index` 是索引状态块：`version` 为 schema 版本，`indexed_at` 为索引生成时间，`refreshed` 表示本次调用是否触发了自动重建，`stale_reason` 为重建原因（`null` 表示索引本来就是最新的）。`notice` 会复述同样的信息；只有显式跳过检查时才会出现 `WARNING: index is stale`。
+返回结果中的 `index` 是索引状态块：`version` 为 schema 版本，`indexed_at` 为索引生成时间，`refreshed` 表示本次调用是否触发了自动重建，`stale_reason` 为重建原因（`null` 表示索引本来就是最新的）。`retrieval` 说明本次用了哪条检索路径（`mode`、`backend`、`reranked`）。`sufficient` 为 `false` 时 `fallback` 会给出明确原因，提示应改用 Harness 原生搜索，而不是把空包当成"项目里没有相关内容"。`notice` 会复述同样的信息；只有显式跳过检查时才会出现 `WARNING: index is stale`。
 
 `task` 的写法直接影响召回率，请写成"一句话 + 你已知的英文标识符"。在本仓库 26 个真实任务上的实测结果（2026-10-05，检索修正后）：只写中文自然语言平均召回 47.8%（7/26 达标），补充标识符后 69.9%（15/26 达标），两者都未达到 90% 目标。剩余缺口有两类：纯中文提问与英文实现之间缺少词面重叠（跨语言匹配，词法检索解决不了），以及文档类任务与测试文件争夺预算。详见 `docs/roadmap.md` §4 的 Phase 2 修正记录与缺口归因。
 
@@ -385,8 +385,9 @@ python -m harness_intelligence.cli context "任务" $targetProject --no-refresh
 ```powershell
 Set-Location -LiteralPath "D:\MY\My Projects\HarnessIntelligenceLayer"
 $env:PYTHONPATH = "src"
-python -m unittest discover -s tests -v   # 95 项，含 MCP stdio 端到端往返、评测门与语料自洽性
+python -m unittest discover -s tests -v   # 128 项，含 MCP stdio 端到端往返、跨 Harness 记忆复用、可选语义后端回退
 python benchmarks/verify.py               # 跨阶段验证与回归门；SKIP 表示本机无法运行，不计为通过
+python benchmarks/evidence.py             # Phase 4 证据门；报告四条触发条件是否成立
 ```
 
 `benchmarks/verify.py` 的检查清单与容差见 `benchmarks/README.md` §6。它覆盖单元测试覆盖不到的部分：真实包的行号自洽、两条文件发现路径得到同一文件集、相对基线 `benchmarks/results/baseline.json` 的召回回归、索引与源码集对齐、以及 `--compare` 的三种退出码（3 数据不可用 / 1 未达门槛 / 0 全部通过）。
@@ -413,6 +414,7 @@ HIL 能减少重复搜索，但不能在没有对照数据时保证固定节省�
 
 本仓库已经把该流程脚本化：任务集在 `benchmarks/tasks.jsonl`，统计与门槛判定在 `benchmarks/measure.py`，填写与判定步骤见 `benchmarks/README.md`。当前状态：
 
-- HIL 侧指标可直接复现（召回、包体积、延迟、重复片段）；
+- HIL 侧指标可直接复现（召回、包体积、延迟、重复片段），并可用 `--embedding auto|hash` 增加一条语义重排对照臂；
+- A/B 判定覆盖 roadmap §5 的五道门槛（token、Recall、成功率、重试次数、跨 Harness 复用），随机分组种子与两臂执行顺序都会记录；
 - 原生基线尚未填写；A/B 表未填满时脚本会拒绝输出节省比例（退出码 3）；
 - 因此本仓库目前不宣称任何固定节省百分比。

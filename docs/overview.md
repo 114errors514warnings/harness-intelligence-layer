@@ -44,9 +44,10 @@ HIL 适合陌生仓库、跨模块任务、故障定位和重复任务。对于�
 - 使用 JSON 文件保存工程记忆；
 - 使用 FastMCP 提供 STDIO MCP Server；
 - 索引带 schema 版本与文件集指纹，检索前自动比对并在漂移时重建，返回值中报告陈旧原因；
-- 当可选检索后端不可用时，始终保留本地词法检索能力。
+- `get_project_context` 返回 `sufficient` 与 `fallback`，空包会显式要求 Harness 回退原生搜索，而不是把空结果当作答案；
+- 提供**可选**的语义重排后端（`HIL_EMBEDDINGS` / CLI `--embedding`），默认关闭；任何后端不可用或中途失败时，检索始终回退到本地词法排序。
 
-当前不包含 Embedding、向量数据库、Tree-sitter、增量文件监听、Unified Validator 和 Model Router。
+当前不包含向量数据库、Tree-sitter、增量文件监听、Unified Validator 和 Model Router。语义重排是可选层而非必需依赖：`hash` 后端仅用于打通链路，本地多语言模型或 HTTP 端点需自行配置，且其收益必须由 `benchmarks/measure.py` 量化后才可提及。
 
 ## 4. MCP 工具
 
@@ -80,16 +81,17 @@ MCP 接口有意保持精简，不提供通用 Shell、文件写入、会话或�
 
 ## 6. 当前部署状态
 
-截至 2026-10-05：
+截至 2026-10-11：
 
-- 索引文件为 `.hil/index.json`，schema 版本 2，覆盖 29 个文本文件、223 个符号；
+- 索引文件为 `.hil/index.json`，schema 版本 2，覆盖 33 个文本文件（本次新增 `embeddings.py`、`evidence.py` 与测试文件后的计数）；
 - 索引自愈与陈旧可见性已实现，并有单元测试覆盖；跨阶段回归门由 `benchmarks/verify.py` 与 `benchmarks/results/baseline.json` 把关；
 - 工程知识库已建立，包含架构、技术决策与缺陷记录；
 - OpenClaw CLI 2026.9.5、Cline CLI 3.0.64、Cline VS Code 扩展 4.1.20 均已注册 `hil`；
-- OpenClaw 实际探测到 4 个 HIL 工具且无诊断错误；
-- 95 项 Python 单元测试通过，其中包含 MCP 四工具注册与 stdio 端到端往返；
+- OpenClaw 实际探测到 4 个 HIL 工具且无诊断错误，MCP 工具面仍严格保持四个；
+- 128 项 Python 单元测试通过，其中包含 MCP 四工具注册、stdio 端到端往返、跨 Harness 记忆复用与可选语义后端的回退路径；
 - GitHub Actions 在 Python 3.11 与 3.13 上运行单元测试、Phase 0 任务集与回归门；
-- Phase 0 任务集（26 条）与统计脚本已建立，并已完成 Phase 2 的两处检索修正：中文词项切分使纯中文任务平均召回由 0% 级提升，`raw` 26.9% → 47.8%、`hinted` 65.7% → 69.9%（均仍未达到 90% 目标，缺口归因见 `docs/roadmap.md` §4）。
+- Phase 0 任务集（26 条）与统计脚本已建立，并已完成 Phase 2 的两处检索修正：中文词项切分使纯中文任务平均召回由 0% 级提升，`raw` 26.9% → 47.8%、`hinted` 65.7% → 69.9%（均仍未达到 90% 目标，缺口归因见 `docs/roadmap.md` §4）；
+- Phase 3 判定机制已就绪（随机分组、五道门槛、跨 Harness 复用回执），Phase 4 证据门（`benchmarks/evidence.py`）已建立并报告"词法 Recall 不达标"这一触发条件成立；可选语义重排已实现且默认关闭，尚无召回收益声明。详见 `docs/roadmap.md` §5/§6。
 
 ## 7. 重要边界
 
@@ -98,6 +100,8 @@ MCP 接口有意保持精简，不提供通用 Shell、文件写入、会话或�
 - 当前 V0.1 是词法检索基线，关键修改前仍应核对真实文件和符号。
 - 文档类问题（`docs/*.md`）：Phase 2 修正后文档片段已能与代码片段竞争（`raw` 变体下 `HIL-017`、`HIL-018` 由 0% 升至 100%），但补充标识符对文档类任务没有帮助（`hinted` 下这两条仍为 0%）；实测与归因见 `docs/roadmap.md` §4。
 - 尚未通过正式 A/B 任务集证明固定 token 节省比例，因此不能宣称确定的节省百分比。
+- 可选语义重排默认关闭；即使开启，`hash` 后端也**不是**语义模型，其与词法检索在本仓库语料上召回一致。只有配置了多语言模型或 HTTP 端点后，其收益才可能成立，且必须先经 `benchmarks/measure.py --embedding auto` 量化。
+- `get_project_context` 的 `sufficient: false` 与 `fallback` 是给 Harness 的明确信号：本次没有检索到任何片段，应改用原生搜索，不要把空包当成"项目里没有相关内容"。
 ## 8. References
 
 - [OpenClaw Context Engine](https://github.com/openclaw/openclaw/blob/main/docs/concepts/context-engine.md)

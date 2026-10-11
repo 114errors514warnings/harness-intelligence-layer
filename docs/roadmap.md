@@ -148,6 +148,23 @@
 
 若未达到门槛，应先修正检索与调用策略，不直接增加复杂基础设施。
 
+### Phase 3 就绪状态（2026-10-11）
+
+采集与判定的机制已就绪，真实 Harness 会话数据仍未填写——**因此本仓库依旧不得宣称任何 token 节省比例**。逐项对照：
+
+| 计划项 | 落地实现 | 验证 |
+|---|---|---|
+| 随机分配 native / HIL | `measure.py --worksheet` 为每行记录 `seed` 与 `order`（两臂执行顺序随机、行序打乱），`--seed` 可复现 | `tests/test_measure.py::WorksheetRandomisationTests` |
+| 记录 token / 工具结果 / 重试 / 正确性 | A/B 表新增可选字段 `retries`、`tool_result_tokens`、`cache_read_tokens`、`model`；`compare()` 报告中位工具结果体积与 prompt-cache 读取量 | `ArmFieldValidationTests`、`Phase3GateTests` |
+| 跨 Harness 记忆复用 | `.ai-memory` 存放在目标项目内，两个独立 Harness 进程共享；新增端到端验证 | `tests/test_cross_harness_reuse.py`、`verify.py` 的 `cross-harness memory reuse` 检查 |
+| 召回不足时回退原生搜索 | `get_project_context` 返回 `sufficient` 与 `fallback`；空包不再被当作答案 | `tests/test_embeddings.py::FallbackSignalTests` |
+| 分离检索收益与 caching / 模型差异 | `cache_read_tokens` 与 `model` 被记录并报告（**不作门槛**，避免把 caching 收益误记为检索收益） | `Phase3GateTests` |
+
+判定门槛全部就位：中位 token 降低 ≥20%、Recall ≥90%、成功率下降 ≤2pp、**平均重试次数不增加**、**跨 Harness 复用成功**（后两项为本次新增）。缺少 `--reuse-file` 时复用门只报告不拦截，以兼容 Phase 3 之前已填写的旧表；一旦提供即纳入判定。
+
+数据状态：`benchmarks/results/ab.jsonl` 的 52 行（26 题 × 2 Harness）两臂仍全部为 `null`。原生臂采集与检索改动无关，可立即并行开始；HIL 臂在召回达到可用水平之前不填，否则只是重复测量已知失败。
+
+
 ## 6. Phase 4：按证据扩展
 
 只有出现对应证据时才实施：
@@ -156,6 +173,28 @@
 - 代码修改质量无法统一比较：增加 Unified Validator；
 - 已积累至少 100 个可比任务结果：增加 Model Router；
 - 本地索引性能成为瓶颈：评估 FAISS、Qdrant 或其他向量存储。
+
+### Phase 4 证据门（2026-10-11）
+
+`benchmarks/evidence.py` 把四条触发条件变成可从已记录证据判定的报告，避免凭"想要"开工：
+
+| 触发条件 | 证据来源 | 当前判定 |
+|---|---|---|
+| 词法 Recall 不达标 → Embedding + Reranker | `results/baseline.json` 的两变体召回 | **FIRED**：`hinted` 69.9%、`raw` 47.8%，均低于 90% |
+| 代码修改质量不可统一比较 → Unified Validator | `results/quality.json`（人工判定的修改集合） | 未举证：尚无该文件 |
+| ≥100 个可比任务结果 → Model Router | `results/ab.jsonl` 已填写的行数 | 未触发：0 条 |
+| 本地检索成为瓶颈 → FAISS / Qdrant | `.hil/results/` 最新报告的 p95 延迟 | 未举证：p95 约 80–120 ms，远低于 1000 ms |
+
+触发条件①已成立，因此实现了**可选**语义重排（`src/harness_intelligence/embeddings.py`）：
+
+- 三种后端：`sentence-transformers`（本地多语言模型）、`http`（OpenAI 兼容 `/embeddings`）、`hash`（离线确定性，仅用于打通链路与测试，**不是语义模型**）；
+- 默认 `HIL_EMBEDDINGS=off`，核心检索不引入任何新依赖；
+- 任何一环失败（未装包、端点不可达、响应格式异常、查询中途抛错）都回退本地词法排序，调用不会因此失败；
+- 只对词法排序后的前 40 个候选重排，权重 0.5，词法分仍是主要证据；
+- **不作召回声明**：`hash` 后端在本仓库 26 题上实测与词法完全一致（`hinted` 68.0%、达标 15/26），因此它只证明链路可用；真正的语义收益需要用 `benchmarks/measure.py --embedding auto` 在装有对应模型的环境里量化后才能提及。
+
+其余三条保持"未触发/未举证"，不预置基础设施。
+
 
 ## 7. 明确不做
 
@@ -170,7 +209,7 @@
 ## 8. 下一步优先级
 
 1. **已完成**：修正两处已量化的检索缺陷——中文词项切分（连续中文串拆为 2/3 字 n-gram）与文档片段排序（片段级评分 + 受 token 上限约束且互不重叠的窗口）。每项都用 `benchmarks/measure.py` 的 `raw` / `hinted` 两次运行验证，并跑 `benchmarks/verify.py` 确认回归门、包不变量与索引覆盖仍成立；基线已用 `--write-baseline` 随改动重录。结果：`raw` 26.9% → 47.8%、`hinted` 65.7% → 69.9%，**仍低于 90% 退出标准**，剩余缺口归因与后续选择见 §4。
-2. 为 OpenClaw/Cline 各完成至少 10 个 native 与 HIL 对照任务，填写 `benchmarks/results/ab.jsonl`。native 臂的采集与检索改动无关，可立即并行开始；HIL 臂在召回达到可用水平之前不填，否则只是重复测量已知的失败。
+2. 为 OpenClaw/Cline 各完成至少 10 个 native 与 HIL 对照任务，填写 `benchmarks/results/ab.jsonl`。判定机制已就绪：随机分组（记录 seed 与执行顺序）、五道门槛（token、Recall、成功率、重试次数、跨 Harness 复用）与工具结果/prompt-cache 记录，见 §5「Phase 3 就绪状态」。native 臂的采集与检索改动无关，可立即并行开始；HIL 臂在召回达到可用水平之前不填，否则只是重复测量已知的失败。
 3. 汇总未召回文件、重复片段和无关上下文（脚本已输出这些字段）。
 4. 召回稳定达到 90% 后，再决定是否投入 Tree-sitter 与增量索引。**现有证据提示 Tree-sitter 解决不了剩余缺口**：未召回的不是"符号没被提取"，而是中文提问与英文实现之间缺少词面重叠（§4）；下一步更可能落在调用策略与跨语言匹配（§6），而不是更精细的符号提取。
 5. 达到数据量门槛后再讨论 Validator 和 Model Router。

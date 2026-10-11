@@ -3,6 +3,9 @@
 # Local scratch space; never part of the project. A stray memory record landed
 # here on 2026-10-06 and one `git add -A` would have published it.
 _tmp/
+# Archify working folder; the delivered diagram is committed under
+# docs/architecture/ and both paths are excluded from the code index.
+.archify/
 __pycache__/
 *.py[cod]
 .pytest_cache/

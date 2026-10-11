@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import re
 import statistics
 import sys
@@ -136,13 +137,17 @@ def _task_recall(file_recall: float | None, symbol_recall: float | None) -> floa
 
 
 def run_hil_arm(
-    tasks: list[dict], root: Path, budget: int, indexed_paths: set[str]
+    tasks: list[dict],
+    root: Path,
+    budget: int,
+    indexed_paths: set[str],
+    embedding: str | None = None,
 ) -> list[dict]:
     """Measure the HIL arm. No model is involved, so this is fully reproducible."""
     rows: list[dict] = []
     for task in tasks:
         started = time.perf_counter()
-        result = get_project_context(task["prompt"], root, budget)
+        result = get_project_context(task["prompt"], root, budget, embedding=embedding)
         latency_ms = (time.perf_counter() - started) * 1000
         fragments = result["fragments"]
         returned = [fragment["path"] for fragment in fragments]
@@ -182,6 +187,9 @@ def run_hil_arm(
                 "returned_paths": returned,
                 "index_refreshed": result["index"]["refreshed"],
                 "stale_reason": result["index"]["stale_reason"],
+                "retrieval_mode": result["retrieval"]["mode"],
+                "sufficient": result["sufficient"],
+                "fallback": result["fallback"],
             }
         )
     return rows
@@ -214,6 +222,8 @@ def summarize(rows: list[dict], budget: int) -> dict:
         "duplicate_pairs": sum(row["duplicate_pairs"] for row in rows),
         "duplicate_tokens": sum(row["duplicate_tokens"] for row in rows),
         "index_refresh_events": sum(1 for row in rows if row["index_refreshed"]),
+        "tasks_without_fragments": sum(1 for row in rows if not row["sufficient"]),
+        "retrieval_modes": sorted({row["retrieval_mode"] for row in rows}),
         "files_never_recalled": sorted({path for row in rows for path in row["missing_files"]}),
         "symbols_never_recalled": sorted(
             {symbol for row in rows for symbol in row["missing_symbols"]}
@@ -232,30 +242,54 @@ def print_table(rows: list[dict]) -> None:
         )
 
 
-def write_worksheet(tasks: list[dict], path: Path, harnesses: list[str]) -> None:
-    """Emit an empty A/B worksheet, so real measurements can be recorded per task."""
+def write_worksheet(
+    tasks: list[dict], path: Path, harnesses: list[str], seed: int = 0
+) -> None:
+    """Emit an empty A/B worksheet with a recorded randomisation.
+
+    Roadmap §5 asks for native/HIL allocation to be randomised, and a seed is
+    recorded on every row so the assignment can be replayed and reviewed. Each
+    task is measured in both arms (a paired design: the token comparison is then
+    within-task, which is the strongest test available at this sample size), and
+    the *order* in which an operator runs the two arms is randomised and the rows
+    are shuffled, so a harness's learning or caching effect is not correlated
+    with the arm it happens to run second.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    lines = []
+    rng = random.Random(seed)
+    rows = []
     for task in tasks:
         for harness in harnesses:
-            lines.append(
-                json.dumps(
-                    {
-                        "id": task["id"],
-                        "harness": harness,
-                        "prompt": task["prompt"],
-                        "native": None,
-                        "hil": None,
-                    },
-                    ensure_ascii=False,
-                )
+            order = ["native", "hil"]
+            rng.shuffle(order)
+            rows.append(
+                {
+                    "id": task["id"],
+                    "harness": harness,
+                    "prompt": task["prompt"],
+                    "seed": seed,
+                    "order": order,
+                    "native": None,
+                    "hil": None,
+                }
             )
+    rng.shuffle(rows)
+    lines = [json.dumps(row, ensure_ascii=False) for row in rows]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"worksheet written: {path}")
+    print(f"randomisation seed: {seed} (recorded on every row, replay with --seed {seed})")
     print(f"rows: {len(lines)} - fill every native/hil arm from harness session usage")
 
 
-def _arm_numbers(arm: object, label: str, task_id: str) -> tuple[int, bool]:
+def _arm_metrics(arm: object, label: str, task_id: str) -> dict:
+    """Validate one measured arm and return its numbers.
+
+    ``input_tokens``, ``success`` and ``evidence`` are mandatory so a number is
+    always traceable. ``retries``, ``tool_result_tokens``, ``cache_read_tokens``
+    and the harness-side ``model`` are optional because they were added in
+    Phase 3; a missing value must never be silently invented, so absence is
+    reported as "not supplied" rather than defaulted to zero for tool tokens.
+    """
     if not isinstance(arm, dict):
         raise ValueError(f"{task_id}: {label} arm is empty")
     tokens = arm.get("input_tokens")
@@ -266,11 +300,75 @@ def _arm_numbers(arm: object, label: str, task_id: str) -> tuple[int, bool]:
         raise ValueError(f"{task_id}: {label}.success must be true or false")
     if not arm.get("evidence"):
         raise ValueError(f"{task_id}: {label}.evidence is required so the number is traceable")
-    return tokens, success
+
+    def _non_negative(field: str) -> int:
+        value = arm.get(field, 0)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValueError(
+                f"{task_id}: {label}.{field} must be a non-negative integer when present"
+            )
+        return value
+
+    def _optional_non_negative(field: str) -> int | None:
+        value = arm.get(field)
+        if value is None:
+            return None
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValueError(
+                f"{task_id}: {label}.{field} must be a non-negative integer when present"
+            )
+        return value
+
+    model = arm.get("model")
+    if model is not None and (not isinstance(model, str) or not model.strip()):
+        raise ValueError(f"{task_id}: {label}.model must be a non-empty string when present")
+    return {
+        "tokens": tokens,
+        "success": success,
+        "retries": _non_negative("retries"),
+        "tool_tokens": _optional_non_negative("tool_result_tokens"),
+        "cache_tokens": _optional_non_negative("cache_read_tokens"),
+        "model": model,
+    }
 
 
-def compare(records: list[dict], task_ids: set[str], recall_pct: float | None) -> int:
-    """Evaluate a filled worksheet against the roadmap Phase 3 thresholds."""
+def _median(values: list[int]) -> int | None:
+    return int(statistics.median(values)) if values else None
+
+
+def load_reuse(path: Path) -> dict:
+    """Read the cross-harness reuse artifact produced by the two-harness check."""
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or not isinstance(payload.get("success"), bool):
+        raise ValueError(f"{path}: reuse artifact needs a boolean 'success' field")
+    pairs = payload.get("pairs", [])
+    if not isinstance(pairs, list):
+        raise ValueError(f"{path}: 'pairs' must be a list")
+    if not pairs:
+        raise ValueError(f"{path}: 'pairs' is empty; nothing was actually reused")
+    for pair in pairs:
+        if not isinstance(pair, dict) or not isinstance(pair.get("found"), bool):
+            raise ValueError(f"{path}: every reuse pair needs a boolean 'found' field")
+        if not pair.get("evidence"):
+            raise ValueError(f"{path}: every reuse pair needs 'evidence'")
+    return payload
+
+
+
+def compare(
+    records: list[dict],
+    task_ids: set[str],
+    recall_pct: float | None,
+    reuse: dict | None = None,
+) -> int:
+    """Evaluate a filled worksheet against the roadmap Phase 3 thresholds.
+
+    Gates: median input token reduction, success-rate drop, context recall,
+    mean retries, and cross-harness memory reuse. Tool-result size and
+    prompt-cache reads are reported but deliberately not gated: roadmap §5 asks
+    them to be *recorded* so a reviewer can separate a retrieval saving from a
+    caching or model effect, not thresholded.
+    """
     if len(records) < MIN_AB_TASKS:
         print(
             f"refusing to report savings: {len(records)} records, "
@@ -284,16 +382,34 @@ def compare(records: list[dict], task_ids: set[str], recall_pct: float | None) -
     reductions: list[float] = []
     native_success: list[bool] = []
     hil_success: list[bool] = []
+    native_retries: list[int] = []
+    hil_retries: list[int] = []
+    native_tool: list[int] = []
+    hil_tool: list[int] = []
+    native_cache: list[int] = []
+    hil_cache: list[int] = []
+    models: set[str] = set()
     harnesses: set[str] = set()
     try:
         for record in records:
             task_id = record.get("id", "?")
             harnesses.add(str(record.get("harness", "unknown")))
-            native_tokens, native_ok = _arm_numbers(record.get("native"), "native", task_id)
-            hil_tokens, hil_ok = _arm_numbers(record.get("hil"), "hil", task_id)
-            reductions.append((native_tokens - hil_tokens) / native_tokens * 100)
-            native_success.append(native_ok)
-            hil_success.append(hil_ok)
+            native = _arm_metrics(record.get("native"), "native", task_id)
+            hil = _arm_metrics(record.get("hil"), "hil", task_id)
+            reductions.append((native["tokens"] - hil["tokens"]) / native["tokens"] * 100)
+            native_success.append(native["success"])
+            hil_success.append(hil["success"])
+            native_retries.append(native["retries"])
+            hil_retries.append(hil["retries"])
+            if native["tool_tokens"] is not None and hil["tool_tokens"] is not None:
+                native_tool.append(native["tool_tokens"])
+                hil_tool.append(hil["tool_tokens"])
+            if native["cache_tokens"] is not None and hil["cache_tokens"] is not None:
+                native_cache.append(native["cache_tokens"])
+                hil_cache.append(hil["cache_tokens"])
+            for arm in (native, hil):
+                if arm["model"]:
+                    models.add(arm["model"])
     except ValueError as exc:
         print(f"refusing to report savings: {exc}")
         return 3
@@ -302,21 +418,52 @@ def compare(records: list[dict], task_ids: set[str], recall_pct: float | None) -
     native_rate = sum(native_success) / len(native_success) * 100
     hil_rate = sum(hil_success) / len(hil_success) * 100
     drop = native_rate - hil_rate
+    mean_native_retries = statistics.fmean(native_retries)
+    mean_hil_retries = statistics.fmean(hil_retries)
     print(f"A/B records: {len(records)} task runs across {', '.join(sorted(harnesses))}")
     print(f"median input token reduction: {median_reduction:.1f}% (target >= {TARGET_REDUCTION_PCT}%)")
     print(
         f"success rate: native {native_rate:.1f}% -> hil {hil_rate:.1f}% "
         f"(drop {drop:.1f} pp, budget {MAX_SUCCESS_DROP_PP} pp)"
     )
+    print(
+        f"mean retries: native {mean_native_retries:.2f} -> hil {mean_hil_retries:.2f} "
+        "(target: not increased)"
+    )
+    if native_tool and hil_tool:
+        print(
+            f"median tool-result tokens: native {_median(native_tool)} -> hil {_median(hil_tool)}"
+        )
+    else:
+        print("median tool-result tokens: not supplied")
+    if native_cache and hil_cache:
+        print(
+            f"median prompt-cache read tokens: native {_median(native_cache)} -> "
+            f"hil {_median(hil_cache)} (separates caching from retrieval)"
+        )
+    if models:
+        print(f"models seen: {', '.join(sorted(models))}")
     if recall_pct is None:
         print("context recall: not supplied (pass --recall-file <hil_*.json>)")
     else:
         print(f"context recall (HIL arm): {recall_pct:.1f}% (target >= {TARGET_RECALL_PCT}%)")
+    if reuse is None:
+        print("cross-harness memory reuse: not supplied (pass --reuse-file <reuse.json>)")
+    else:
+        pairs = reuse.get("pairs", [])
+        found = sum(1 for pair in pairs if pair.get("found"))
+        print(
+            f"cross-harness memory reuse: {found}/{len(pairs)} facts written by one "
+            "harness were retrieved through another"
+        )
     checks = [
         ("median input token reduction", median_reduction >= TARGET_REDUCTION_PCT),
         ("success rate drop", drop <= MAX_SUCCESS_DROP_PP),
         ("context recall", recall_pct is not None and recall_pct >= TARGET_RECALL_PCT),
+        ("mean retries not increased", mean_hil_retries <= mean_native_retries),
     ]
+    if reuse is not None:
+        checks.append(("cross-harness memory reuse", bool(reuse.get("success"))))
     for name, passed in checks:
         print(f"  [{'PASS' if passed else 'FAIL'}] {name}")
     return 0 if all(passed for _, passed in checks) else 1
@@ -337,6 +484,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--hints", default=str(DEFAULT_HINTS))
     parser.add_argument(
+        "--embedding",
+        choices=("off", "auto", "on", "hash"),
+        default=None,
+        help="optional semantic re-ranking arm (default: follow HIL_EMBEDDINGS, else off)",
+    )
+    parser.add_argument(
         "--out",
         default="",
         help="results file path (default .hil/results/, which the index excludes)",
@@ -348,8 +501,19 @@ def main(argv: list[str] | None = None) -> int:
         default=[],
         help="harness name for --worksheet (repeatable, default openclaw+cline)",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="randomisation seed for --worksheet arm order (recorded on every row)",
+    )
     parser.add_argument("--compare", default="", help="filled A/B worksheet to evaluate")
     parser.add_argument("--recall-file", default="", help="HIL results file for the recall gate")
+    parser.add_argument(
+        "--reuse-file",
+        default="",
+        help="cross-harness memory reuse artifact for the reuse gate",
+    )
     args = parser.parse_args(argv)
 
     tasks = load_tasks(Path(args.tasks))
@@ -359,7 +523,9 @@ def main(argv: list[str] | None = None) -> int:
         tasks = apply_hints(tasks, load_hints(Path(args.hints)))
 
     if args.worksheet:
-        write_worksheet(tasks, Path(args.worksheet), args.harness or ["openclaw", "cline"])
+        write_worksheet(
+            tasks, Path(args.worksheet), args.harness or ["openclaw", "cline"], args.seed
+        )
         return 0
 
     if args.compare:
@@ -372,18 +538,25 @@ def main(argv: list[str] | None = None) -> int:
         if args.recall_file:
             report = json.loads(Path(args.recall_file).read_text(encoding="utf-8"))
             recall_pct = report["summary"]["mean_recall_pct"]
-        return compare(records, {task["id"] for task in tasks}, recall_pct)
+        reuse = None
+        if args.reuse_file:
+            try:
+                reuse = load_reuse(Path(args.reuse_file))
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                print(f"refusing to report savings: {exc}")
+                return 3
+        return compare(records, {task["id"] for task in tasks}, recall_pct, reuse)
 
     root = Path(args.root).resolve()
     print(
         f"HIL {HIL_VERSION} | index schema {INDEX_VERSION} | budget {args.budget} "
-        f"| variant {args.variant} | {root}"
+        f"| variant {args.variant} | embedding {args.embedding or 'off'} | {root}"
     )
     index_project(root)
     indexed_paths = {entry["path"] for entry in load_index(root)["files"]}
     print(f"indexed files: {len(indexed_paths)} | tasks: {len(tasks)}")
     print()
-    rows = run_hil_arm(tasks, root, args.budget, indexed_paths)
+    rows = run_hil_arm(tasks, root, args.budget, indexed_paths, args.embedding)
     summary = summarize(rows, args.budget)
     print_table(rows)
     print()
@@ -407,6 +580,7 @@ def main(argv: list[str] | None = None) -> int:
                 "index_schema_version": INDEX_VERSION,
                 "token_budget": args.budget,
                 "variant": args.variant,
+                "embedding": args.embedding or "off",
                 "summary": summary,
                 "tasks": rows,
             },

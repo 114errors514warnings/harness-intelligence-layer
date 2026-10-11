@@ -7,8 +7,9 @@
 | `tasks.jsonl` | 26 个带标注的项目任务（单文件、跨模块、故障定位、架构问答） |
 | `hints.jsonl` | 同一批任务的标识符化表达，用于把"表达质量"与"检索质量"分开测量 |
 | `measure.py` | HIL 侧机械测量 + A/B 结果校验（仅用标准库） |
-| `verify.py` | 跨阶段验证与回归门：8 类断言，输出 PASS / FAIL / SKIP，退出码 1 = 有断言失败 |
-| `results/` | 入库证据：`ab.jsonl`（人工填写）与 `baseline.json`（回归基线） |
+| `evidence.py` | Phase 4 证据门：报告四条「按证据扩展」触发条件是否成立（不实现任何组件） |
+| `verify.py` | 跨阶段验证与回归门：任务集、发现路径、包不变量、回归门、索引覆盖、跨 Harness 复用、节省门自检，输出 PASS / FAIL / SKIP，退出码 1 = 有断言失败 |
+| `results/` | 入库证据：`ab.jsonl`（人工填写）、`baseline.json`（回归基线）、可选的 `reuse.json`（跨 Harness 复用回执）与 `quality.json`（人工判定修改集合） |
 
 每次运行的报告写入 `.hil/results/`（`.hil/` 已被两条文件发现路径排除），因此跑评测不会改变下一次评测读到的索引。
 
@@ -53,8 +54,11 @@ python benchmarks/measure.py --budget 1500 --label hil
 | `--label NAME` | 结果文件标签，例如 `openclaw`、`cline` |
 | `--variant raw\|hinted` | 任务表达：原始表达 vs 标识符化表达，默认 `raw` |
 | `--out PATH` | 报告输出路径，默认 `.hil/results/`（该目录不在索引范围内） |
-| `--worksheet PATH` | 生成空白 A/B 表并退出 |
-| `--compare PATH` | 校验已填写的 A/B 表并按 roadmap §5 门槛判定 |
+| `--worksheet PATH` | 生成空白 A/B 表并退出（每行写入随机 `seed` 与两臂执行 `order`） |
+| `--seed N` | `--worksheet` 的随机化种子，默认 0，可复现同一分组 |
+| `--embedding off\|auto\|on\|hash` | 可选语义重排臂，默认跟随 `HIL_EMBEDDINGS`（未设置即 `off`）；不可用时回退本地词法 |
+| `--compare PATH` | 校验已填写的 A/B 表并按 roadmap §5 五道门槛判定 |
+| `--reuse-file PATH` | 跨 Harness 复用回执，提供后纳入复用门判定 |
 
 ## 4. 任务表达对照（调用策略）
 
@@ -90,31 +94,54 @@ python benchmarks/measure.py --budget 1500 --label baseline --variant hinted
 A/B 表的 token 数必须从 Harness 会话用量中读取，`measure.py` 无法替你生成。先生成空白表：
 
 ```powershell
-python benchmarks/measure.py --worksheet benchmarks/results/ab.jsonl --harness openclaw --harness cline
+python benchmarks/measure.py --worksheet benchmarks/results/ab.jsonl `
+  --harness openclaw --harness cline --seed 20261011
 ```
+
+`--worksheet` 会为每行记录随机化结果：`seed` 是本次种子，`order` 是该题两个臂的执行顺序（`native` 与 `hil` 随机先后）。行序也被打乱，使某个 Harness 的学习或缓存效应不会固定落在后执行的臂上；用同一 `--seed` 重跑可复现同一分组。
 
 逐行填写后形如（**下面是格式示例，不是真实数据**）：
 
 ```json
-{"id": "HIL-005", "harness": "openclaw", "prompt": "四个 MCP 工具在哪个函数里注册？",
- "native": {"input_tokens": 0, "success": false, "evidence": "<取数位置与日期>"},
- "hil":    {"input_tokens": 0, "success": false, "evidence": "<取数位置与日期>"}}
+{"id": "HIL-005", "harness": "openclaw", "seed": 20261011, "order": ["hil", "native"],
+ "prompt": "四个 MCP 工具在哪个函数里注册？",
+ "native": {"input_tokens": 0, "success": false, "retries": 0,
+            "tool_result_tokens": 0, "cache_read_tokens": 0, "model": "<模型名>",
+            "evidence": "<取数位置与日期>"},
+ "hil":    {"input_tokens": 0, "success": false, "retries": 0,
+            "tool_result_tokens": 0, "cache_read_tokens": 0, "model": "<模型名>",
+            "evidence": "<取数位置与日期>"}}
 ```
 
 字段要求：
 
-- `input_tokens`：该次任务会话的模型输入 token 总量（正整数）；
-- `success`：按 `success_criteria` 判定任务是否真正完成（布尔）；
-- `evidence`：取数位置与日期，缺失即视为未填写，脚本拒绝统计。
+- `input_tokens`：该次任务会话的模型输入 token 总量（必填正整数）；
+- `success`：按 `success_criteria` 判定任务是否真正完成（必填布尔）；
+- `evidence`：取数位置与日期，缺失即视为未填写，脚本拒绝统计（必填）；
+- `retries`：该次任务的修复轮次（可选，缺省 0，纳入门槛）；
+- `tool_result_tokens`：工具结果累计体积（可选，**只记录不设门槛**）；
+- `cache_read_tokens`：prompt cache 命中读取量（可选，**只记录不设门槛**），用于判断 token 下降是否其实来自缓存而非检索；
+- `model`：Harness 使用的模型标识（可选），用于分辨模型差异。
+
+跨 Harness 复用回执（可选）形如：
+
+```json
+{"generated_at": "<UTC>", "success": true,
+ "pairs": [{"writer": "cline", "reader": "openclaw", "query": "<查询>",
+            "found": true, "evidence": "<取数位置与日期>"}]}
+```
+
+`success` 为布尔、`pairs` 非空且每对都带 `found` 与 `evidence`，否则脚本以退出码 3 拒绝统计。
 
 判定：
 
 ```powershell
 python benchmarks/measure.py --compare benchmarks/results/ab.jsonl `
-  --recall-file benchmarks/results/hil_openclaw_<UTC>.json
+  --recall-file benchmarks/results/hil_openclaw_<UTC>.json `
+  --reuse-file benchmarks/results/reuse.json
 ```
 
-门槛来自 `docs/roadmap.md` §5：中位输入 token 降低 ≥ 20%、Context Recall ≥ 90%、成功率下降 ≤ 2 个百分点。任一不达标时退出码为 1。
+门槛来自 `docs/roadmap.md` §5：中位输入 token 降低 ≥ 20%、Context Recall ≥ 90%、成功率下降 ≤ 2 个百分点、**平均重试次数不增加**，提供回执时再加**跨 Harness 复用成功**。任一不达标时退出码为 1；数据不足或不可追溯时为退出码 3。未提供 `--reuse-file` 时复用门只报告不拦截，以兼容 Phase 3 之前已填写的旧表。
 
 ## 6. 验证与回归门
 
@@ -138,15 +165,29 @@ python benchmarks/verify.py --write-baseline             # 有意改变检索后
 | 回归门 | 相对 `results/baseline.json`：平均召回 ≥ 基线 − 8pp、达标题数 ≥ 基线 − 2、重复片段不增加、中位包体积 ≤ 基线 × 1.05 + 50 token |
 | 延迟 | 预热后报告 p50 / p95，**不作门**（同机冷启动实测摆动 2.6 倍，单次数字是假信号） |
 | 索引覆盖 | 索引文件集 == 可发现文本文件集（含 `.hilignore` 规则），且不含 `hil_*.json` 每次运行报告与 `results/baseline.json` |
-| 节省门自检 | 用合成数据验证 `--compare` 的三种退出码：3 数据不可用、1 未达门槛、0 全部通过 |
+| 跨 Harness 复用 | 在临时项目里写入一条署名为 `cline` 的事实，再经记忆检索与 `get_project_context` 读回；断言事实存放在目标项目而非 Harness 私有存储，且 `.ai-memory` 不被当作源码重建索引 |
+| 节省门自检 | 用合成数据验证 `--compare` 的四种退出码场景：3 数据不可用、1 未达门槛（token / 重试 / 复用各自一个用例）、0 全部通过 |
 
 容差说明：26 题中单题翻转 ≈ 3.8pp，因此回归门允许约两题的合法漂移。这种漂移不只来自检索改动：**被引用的文档本身也在索引里**，所以修改这些数字所在的文档就会移动数值——实测一次文档更新让 `raw` 掉 3.9pp（≈ 1 题）、`hinted` 涨 1.9pp（≈ 1 题）。8pp 的容差刚好覆盖这类合法漂移，而真正的退化（例如中文词项切分失效）会远超这个幅度。基线只能通过 `--write-baseline` 更新，并应与触发数值变动的提交一起 review。
 
 ## 7. 当前状态
 
 - 任务集：已完成（26 条，含成功判据与来源标注）；
-- HIL 侧测量：可直接复现（29 个文件 / 223 个符号、`raw` 与 `hinted` 两次运行）；
+- HIL 侧测量：可直接复现（本次运行 33 个文件、`raw` 与 `hinted` 两次运行，另可用 `--embedding` 增加语义重排臂）；
 - 检索修正：Phase 2 的两处词法层缺陷已修正并量化（`raw` 26.9% → 47.8%、`hinted` 65.7% → 69.9%），**仍未达到 90% 退出标准**，缺口归因见 `docs/roadmap.md` §4；
 - 调用策略对照：已完成，标识符化表达在当前检索下把平均召回从 47.8% 提升到 69.9%；
+- Phase 3 判定机制：已就绪（随机分组 + seed、五道门槛、工具结果与 prompt-cache 记录、跨 Harness 复用回执），见 `docs/roadmap.md` §5「Phase 3 就绪状态」；
+- Phase 4 证据门：已建立（`evidence.py`），可选语义重排已实现并默认为关，见 §8；
 - 回归门：已建立（`verify.py` + `results/baseline.json`），并接入 CI；
-- 原生执行基线：**尚未填写**，因此本仓库不得宣称任何 token 节省比例。
+- 原生执行基线：**尚未填写**（`ab.jsonl` 的 52 行两臂仍为 `null`），因此本仓库不得宣称任何 token 节省比例。
+
+> 语料漂移提示：本次新增了 `embeddings.py`、`evidence.py`、若干测试文件并改写了本文档，索引由 29 个文件增至 33 个，`raw` 与 `hinted` 召回随之移动（本次实测约 44% / 66%，仍在回归门的 8pp 容差内）。这不是检索退化，而是"被引用的源码与文档本身也在索引里"这一已记录现象的又一次实例，故基线未改写。
+
+## 8. Phase 4 证据门
+
+```powershell
+$env:PYTHONPATH = "src"
+python benchmarks/evidence.py
+```
+
+读取 `results/baseline.json`（召回）、`results/ab.jsonl`（可比结果数）、可选的 `results/quality.json`（人工判定修改集合）与 `.hil/results/` 最新报告的 p95 延迟，逐条报告 `docs/roadmap.md` §6 的四个触发条件是 `FIRED`（证据已成立）、`NOT FIRED`（证据表明暂不需要）还是 `NOT EVIDENCED`（尚无证据）。退出码恒为 0：这是决策报告而不是构建门，`FIRED` 只表示"roadmap 要求的证据出现了"，不代表必须开工，也不代表任何收益已被测量。
