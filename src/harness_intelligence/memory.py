@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .glossary import expand_terms
 from .terms import extract_terms
 
 
@@ -49,7 +50,8 @@ def search_memory(query: str, project_root: str | Path, limit: int = 5) -> list[
     memory_root = root / ".ai-memory"
     if not memory_root.exists():
         return []
-    query_set = set(extract_terms(query, limit=None))
+    query_terms = extract_terms(query, limit=None)
+    query_set = set(query_terms) | set(expand_terms(query_terms))
     matches = []
     for path in memory_root.glob("*/*.json"):
         try:
