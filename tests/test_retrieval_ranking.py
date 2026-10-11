@@ -120,6 +120,19 @@ class FragmentScoringTests(unittest.TestCase):
             any(fragment.start_line <= 3 <= fragment.end_line for fragment in found)
         )
 
+    def test_the_window_holding_a_named_symbol_beats_a_denser_window(self) -> None:
+        # The Phase 3 pilot lost 5 tasks because the one emitted window was the
+        # densest one, not the one holding the identifier the query named: the
+        # model got the file but not the line that answers the question.
+        lines = [f"line {n} 索引 陈旧 检测 说明文字 索引 陈旧 检测" for n in range(1, 40)]
+        lines[29] = "DEFAULT_EXCLUDES = {'.git', '.hil'}"
+        symbols = [{"name": "DEFAULT_EXCLUDES", "kind": "constant", "line": 30}]
+        found = candidates("\n".join(lines), ["索引", "default_excludes"], symbols)
+        self.assertTrue(found)
+        self.assertTrue(
+            any(fragment.start_line <= 30 <= fragment.end_line for fragment in found)
+        )
+
     def test_terms_are_matched_case_insensitively(self) -> None:
         found = candidates("Load_Index()\n", ["load_index"])
         self.assertEqual(window_hits(found[0]), 1)

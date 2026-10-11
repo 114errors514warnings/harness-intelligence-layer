@@ -85,7 +85,7 @@ V0.1 的词法检索对任务表达敏感，实测（`benchmarks/`，26 个真�
 | 任务表达 | 平均召回 | 达标题数（≥90%） |
 |---|---|---|
 | 只写中文自然语言 | 59.3% | 10 / 26 |
-| 中文 + 英文标识符 | 92.3% | 21 / 26 |
+| 中文 + 英文标识符 | 96.2% | 23 / 26 |
 
 所以请把 `get_project_context` 的 `task` 写成"一句话 + 相关标识符"，例如 `定位索引重建与陈旧检测（load_index、staleness_reason、INDEX_VERSION）`，而不是只写"索引是怎么更新的"。补标识符的写法已达到 90% 目标（且没有任何必召回文件被漏掉）；纯中文提问仍是 59.3%，剩下的缺口是"中文提问与英文实现之间缺少词面重叠"这一跨语言问题，词法检索解决不了。详见 `docs/roadmap.md` §4。
 
@@ -93,7 +93,7 @@ V0.1 的词法检索对任务表达敏感，实测（`benchmarks/`，26 个真�
 
 ```powershell
 $env:PYTHONPATH = "src"
-python -m unittest discover -s tests -v      # 131 项单元测试，含 MCP stdio 端到端往返、跨 Harness 记忆复用
+python -m unittest discover -s tests -v      # 132 项单元测试，含 MCP stdio 端到端往返、跨 Harness 记忆复用
 
 # Phase 0 评测：任务集召回、包体积、延迟、重复片段
 python benchmarks/measure.py --budget 1500 --label baseline --variant raw
