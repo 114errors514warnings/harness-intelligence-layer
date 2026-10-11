@@ -1,0 +1,24 @@
+{
+  "generated_at": "2026-10-11T11:46:00+00:00",
+  "success": true,
+  "pairs": [
+    {
+      "writer": "openclaw",
+      "reader": "opencode",
+      "query": "Cross-harness reuse probe",
+      "found": true,
+      "memory_id": "24dac43a4dc7",
+      "title": "Cross-harness reuse probe 2026-10-11",
+      "evidence": "written by OpenClaw agent session cae9bcc4-ad42-44b0-93ef-0aa775152e20 via the hil MCP server 2026-10-11T11:45:35Z; read back by OpenCode through its own hil MCP server (search_project_memory) 2026-10-11T11:45Z"
+    },
+    {
+      "writer": "opencode",
+      "reader": "openclaw",
+      "query": "Reverse reuse probe",
+      "found": true,
+      "memory_id": "60635400cc01",
+      "title": "Reverse reuse probe 2026-10-11",
+      "evidence": "written by OpenCode through the hil MCP server configured in ~/.config/opencode/opencode.json 2026-10-11T11:45:48Z; read back by OpenClaw agent session 20413e55-c042-4894-bcc0-edac6a444c16 via hil__search_project_memory 2026-10-11T11:46Z"
+    }
+  ]
+}

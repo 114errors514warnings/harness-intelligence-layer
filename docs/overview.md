@@ -83,15 +83,15 @@ MCP 接口有意保持精简，不提供通用 Shell、文件写入、会话或�
 
 截至 2026-10-11：
 
-- 索引文件为 `.hil/index.json`，schema 版本 2，覆盖 33 个文本文件（本次新增 `embeddings.py`、`evidence.py` 与测试文件后的计数）；
+- 索引文件为 `.hil/index.json`，schema 版本 3，覆盖 34 个文本文件（常量纳入符号后 schema 由 2 升到 3，检索前自动重建旧索引）；
 - 索引自愈与陈旧可见性已实现，并有单元测试覆盖；跨阶段回归门由 `benchmarks/verify.py` 与 `benchmarks/results/baseline.json` 把关；
 - 工程知识库已建立，包含架构、技术决策与缺陷记录；
 - OpenClaw CLI 2026.9.5、Cline CLI 3.0.64、Cline VS Code 扩展 4.1.20 均已注册 `hil`；
 - OpenClaw 实际探测到 4 个 HIL 工具且无诊断错误，MCP 工具面仍严格保持四个；
-- 132 项 Python 单元测试通过，其中包含 MCP 四工具注册、stdio 端到端往返、跨 Harness 记忆复用、路径匹配精度与可选语义后端的回退路径；
+- 134 项 Python 单元测试通过，其中包含 MCP 四工具注册、stdio 端到端往返、跨 Harness 记忆复用、路径匹配精度、模块常量符号与可选语义后端的回退路径；
 - GitHub Actions 在 Python 3.11 与 3.13 上运行单元测试、Phase 0 任务集与回归门；
-- Phase 0 任务集（26 条）与统计脚本已建立；Phase 2 已完成两轮检索修正：第一轮中文词项切分 + 片段级排序，第二轮路径匹配精确化、文件级加成不再被窗口体积稀释、点名的标识符窗口优先发射、每文件一个窄窗口以覆盖更多文件。`raw` 26.9% → 47.8% → **59.3%**、`hinted` 65.7% → 69.9% → **96.2%**：`hinted` 已达到 90% 退出标准（且无必召回文件被漏掉），`raw` 的剩余缺口是跨语言匹配（见 `docs/roadmap.md` §4）；
-- **首次真实跨 Harness A/B 已完成**（2026-10-11，OpenClaw + `deepseek-v4-flash`，26 题 × 2 臂，双臂有效性经 transcript 核验）：中位输入 token 降低 **45.9%**、召回 96.2%、平均重试 0→0 均达标，但**成功率 100% → 96.2%（−3.8pp，预算 2pp）未达标**，因此 Phase 3 仍未通过；26 题的粒度是 3.85pp/题，2pp 预算在该样本量上无法分辨。详见 `docs/roadmap.md` §5；
+- Phase 0 任务集（Phase 0 时 26 条，后扩建到 **50 条**）与统计脚本已建立；Phase 2 已完成三轮检索修正：中文词项切分 + 片段级排序、路径匹配精确化、点名标识符窗口优先发射、模块常量纳入符号。50 题上 `raw` **50.8%**、`hinted` **98.5%**：`hinted` 已达到 90% 退出标准，`raw` 的剩余缺口是跨语言匹配（见 `docs/roadmap.md` §4）；
+- **首次真实跨 Harness A/B 已通过全部门槛**（2026-10-11，OpenClaw + `deepseek-v4-flash`，50 题 × 2 臂，双臂有效性经 transcript 核验）：中位输入 token 降低 **43.1%**、召回 98.5%、成功率 100% → 100%、平均重试 0→0、跨 Harness 复用 2/2，`--compare` 退出码 0。详见 `docs/roadmap.md` §5；
 - Phase 3 判定机制已就绪（随机分组、五道门槛、跨 Harness 复用回执），Phase 4 证据门（`benchmarks/evidence.py`）已建立并报告"词法 Recall 不达标"这一触发条件成立；可选语义重排已实现且默认关闭，尚无召回收益声明。详见 `docs/roadmap.md` §5/§6。
 
 ## 7. 重要边界

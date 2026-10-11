@@ -31,7 +31,7 @@ Do not rebuild the index before every query. V0.1 has no file watcher, but retri
 
 Call `get_project_context(task, project_root, token_budget)` before broad repository exploration when the task is unfamiliar, cross-file, architectural, or diagnostic.
 
-Write the `task` string as one sentence **plus the identifiers you already know**: file names, symbol names, configuration keys, error codes, CLI flags. Measured on the repository's Phase 0 task set (26 real tasks, 1500 token budget), identifier-rich task strings raised mean context recall from 59.3% to 96.2%, which meets the 90% target with no required file missed; a Chinese-only question still reaches only 59.3%, because it shares no literal form with the English implementation files. Never omit an identifier you already have.
+Write the `task` string as one sentence **plus the identifiers you already know**: file names, symbol names, configuration keys, error codes, CLI flags. Measured on the repository's task set (50 real tasks, 1500 token budget), identifier-rich task strings raised mean context recall from 50.8% to 98.5%, which meets the 90% target with almost no required file missed; a Chinese-only question still reaches only 50.8%, because it shares no literal form with the English implementation files. Never omit an identifier you already have.
 
 Use the smallest useful budget:
 

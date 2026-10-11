@@ -7,12 +7,30 @@ from pathlib import Path
 
 from harness_intelligence.indexer import (
     INDEX_VERSION,
+    extract_symbols,
     index_project,
     load_index,
     staleness_reason,
 )
 from harness_intelligence.memory import record_memory
 from harness_intelligence.retrieval import get_project_context
+
+
+class SymbolExtractionTests(unittest.TestCase):
+    """Module constants are symbols a query can name outright."""
+
+    def test_module_constants_are_extracted_as_symbols(self) -> None:
+        # Without this, a query naming MAX_TERMS or DEFAULT_EXCLUDES had no symbol
+        # to anchor on, so the emitted window was chosen by hit density and often
+        # missed the constant's own line.
+        symbols = {symbol.name for symbol in extract_symbols("MAX_TERMS = 200\nDEFAULT_EXCLUDES = {\n")}
+        self.assertIn("MAX_TERMS", symbols)
+        self.assertIn("DEFAULT_EXCLUDES", symbols)
+
+    def test_lowercase_assignments_and_short_names_are_not_constants(self) -> None:
+        symbols = {symbol.name for symbol in extract_symbols("    memory_cap = 1\nID = 2\n")}
+        self.assertNotIn("memory_cap", symbols)
+        self.assertNotIn("ID", symbols)
 
 
 class IndexFreshnessTests(unittest.TestCase):

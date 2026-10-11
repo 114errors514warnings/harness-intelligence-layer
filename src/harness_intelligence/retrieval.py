@@ -236,21 +236,22 @@ def _entry_candidates(
         window_hits = sum(1 for line in content_hits if start <= line <= end)
         # A window that holds the line of an identifier the query named outright
         # (``DEFAULT_EXCLUDES``) is the window the caller asked for, even when a
-        # different window of the same file is denser. Emitting the densest
-        # window instead was why the Phase 3 pilot lost 5 tasks: the model got the
-        # file but not the line that answers the question.
-        named_symbol = 1 if any(start <= line <= end for line in exact_lines) else 0
-        scored.append((named_symbol, window_hits, start, end))
+        # different window of the same file is denser; covering more of the named
+        # identifiers beats covering one. Emitting the densest window instead was
+        # why the first Phase 3 run lost 5 tasks: the model got the file but not
+        # the line that answers the question.
+        named_hits = sum(1 for line in exact_lines if start <= line <= end)
+        scored.append((named_hits, window_hits, start, end))
     # Emit the windows where the evidence is, not the ones that happen to sit
     # highest in the file: a named identifier outranks raw density, then density
     # decides, then the cheaper window on a tie.
     scored.sort(key=lambda item: (item[0], item[1], item[2] - item[3]), reverse=True)
     chosen = scored[:MAX_WINDOWS]
     candidates = []
-    for named_symbol, window_hits, start, end in sorted(chosen, key=lambda item: item[2]):
+    for named_hits, window_hits, start, end in sorted(chosen, key=lambda item: item[2]):
         label = f"text_hits:{window_hits}" if window_hits else f"symbol_lines:{len(hit_lines)}"
-        if named_symbol:
-            label = f"named_symbol:{window_hits}"
+        if named_hits:
+            label = f"named_symbol:{named_hits}"
         candidates.append(
             Candidate(
                 path,

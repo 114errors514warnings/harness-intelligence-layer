@@ -24,3 +24,27 @@
 {"id": "HIL-024", "hinted_prompt": "索引排除哪些目录：DEFAULT_EXCLUDES 中的 .git .hil .ai-memory .venv node_modules dist build __pycache__"}
 {"id": "HIL-025", "hinted_prompt": "索引陈旧检测依赖哪些元数据：file_state 指纹由 path size mtime_ns 取 sha1，staleness_reason"}
 {"id": "HIL-026", "hinted_prompt": "新增一个 MCP 工具需要同步修改哪些地方：create_server、EXPECTED_TOOLS 断言与文档工具列表"}
+{"id": "HIL-027", "hinted_prompt": "Phase 4 证据门脚本如何判定四条触发条件：evaluate 读 baseline 两变体召回、ab 记录数、quality 判定集合与 p95 延迟"}
+{"id": "HIL-028", "hinted_prompt": "Model Router 的触发门槛：可比结果条数常量 ROUTER_MIN_RECORDS 是多少，按什么口径统计"}
+{"id": "HIL-029", "hinted_prompt": "可选语义重排如何选择后端：resolve_backend 按 HIL_EMBEDDINGS、HIL_EMBEDDING_PROVIDER 选择，默认 off，auto 探测 sentence-transformers 再 http"}
+{"id": "HIL-030", "hinted_prompt": "语义后端在查询中途抛异常时 get_project_context 的降级：_rerank 抛错被捕获，retrieval.mode 退回 lexical，detail 记录原因"}
+{"id": "HIL-031", "hinted_prompt": "为什么查询点名的标识符所在窗口要优先于命中密度发射：named_symbol 与 _entry_candidates"}
+{"id": "HIL-032", "hinted_prompt": "每文件窗口数 MAX_WINDOWS 与窗口 token 上限 MAX_WINDOW_TOKENS 的取值，以及覆盖更多文件的代价"}
+{"id": "HIL-033", "hinted_prompt": "git 为什么曾经错误命中 .github 目录：路径命中改为词部件匹配，matches_path 与短词项前缀门槛"}
+{"id": "HIL-034", "hinted_prompt": "路径名如何切词部件 path_names，以及短词项前缀匹配门槛 PATH_PREFIX_MIN"}
+{"id": "HIL-035", "hinted_prompt": "中文重叠 n-gram 的元数长度与词项总数上限：CJK_NGRAM_SIZES 与 MAX_TERMS"}
+{"id": "HIL-036", "hinted_prompt": "词项数量上限的作用，以及 limit=None 的集合式调用方是谁：extract_terms"}
+{"id": "HIL-037", "hinted_prompt": "A/B 空白表生成时随机化了什么：write_worksheet 写入 seed、两臂执行顺序 order、行序打乱、可复现"}
+{"id": "HIL-038", "hinted_prompt": "复用回执的校验条件：load_reuse 要求 success 布尔、pairs 非空、每对 found 与 evidence，否则退出码 3"}
+{"id": "HIL-039", "hinted_prompt": "回归门允许的召回漂移容差常量 RECALL_TOLERANCE_PP 与它按「允许约两题合法漂移」设定的理由"}
+{"id": "HIL-040", "hinted_prompt": "索引覆盖检查断言的内容：check_index_covers 断言索引文件集等于可发现文件集，且不含每次运行报告与回归基线"}
+{"id": "HIL-041", "hinted_prompt": ".hilignore 规则语义：is_ignored 对目录规则做前缀匹配，其余规则对相对路径与最后一段做 fnmatch"}
+{"id": "HIL-042", "hinted_prompt": "ripgrep 发现路径的排除参数：_rg_files 传 --files --hidden 与 .git/.hil/.ai-memory 三个 glob"}
+{"id": "HIL-043", "hinted_prompt": "MCP 工具未传 project_root 时的默认目录来源：_default_root 读 HIL_PROJECT_ROOT，回退当前工作目录"}
+{"id": "HIL-044", "hinted_prompt": "CLI 非法参数的结束方式：cli.main 捕获 ValueError、parser.error 打印用法、退出码 2"}
+{"id": "HIL-045", "hinted_prompt": "记录工程记忆时写入的归属字段与落盘路径：record_memory 写 id/category/title/content/tags/source/project/created_at"}
+{"id": "HIL-046", "hinted_prompt": "跨 Harness 复用如何被自动化验证：CrossHarnessReuseTests 起两个独立 stdio 进程、不同 HIL_HARNESS、一写一读"}
+{"id": "HIL-047", "hinted_prompt": "语义后端不可用时如何验证回退：FallbackSignalTests 覆盖后端抛错退回词法序，空包时 sufficient 为 false 且 fallback 非空"}
+{"id": "HIL-048", "hinted_prompt": "Phase 4 四条触发条件：Embedding 与 Reranker、Unified Validator、Model Router、向量存储"}
+{"id": "HIL-049", "hinted_prompt": "项目的依赖策略与为什么暂不引入向量库：官方依赖只有 mcp，Embedding 延后到召回不达标"}
+{"id": "HIL-050", "hinted_prompt": "A/B 表每行字段与哪些纳入判定：input_tokens success evidence 必填，retries 入门槛，工具结果与 prompt-cache 只记录"}

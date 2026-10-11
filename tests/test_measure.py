@@ -367,11 +367,13 @@ class CompareGateTests(unittest.TestCase):
         self.assertEqual(code, 0)
 
     def test_the_reported_reduction_is_a_median(self) -> None:
-        # 11 tasks at +30% and 9 tasks at -50% average out negative while the
-        # median still clears the bar, so this pins the statistic that decides.
+        # A majority at +30% next to a large minority at -50% still averages out
+        # negative while the median clears the bar, so this pins the statistic
+        # that decides rather than the mean.
         ids = sorted(self.ids)
-        records = [_record(task_id, 1000, 700) for task_id in ids[:11]]
-        records += [_record(task_id, 1000, 1500) for task_id in ids[11:]]
+        positives = len(ids) // 2 + 1
+        records = [_record(task_id, 1000, 700) for task_id in ids[:positives]]
+        records += [_record(task_id, 1000, 1500) for task_id in ids[positives:]]
         code, output = self._compare(records, 95.0)
         self.assertEqual(code, 0)
         self.assertIn("median input token reduction: 30.0%", output)
@@ -382,7 +384,7 @@ class CompareGateTests(unittest.TestCase):
         records[0]["hil"] = {**records[0]["hil"], "input_tokens": 1400}
         code, output = self._compare(records, 95.0)
         self.assertEqual(code, 0)
-        self.assertIn("A/B records: 20 task runs", output)
+        self.assertIn(f"A/B records: {measure.MIN_AB_TASKS} task runs", output)
 
 
 class WorksheetRandomisationTests(unittest.TestCase):

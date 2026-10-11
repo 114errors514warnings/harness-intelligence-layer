@@ -54,7 +54,7 @@ ARTIFACT_DIR = PROJECT_ROOT / ".hil" / "results"  # per-run reports, never index
 CATEGORIES = {"single-file", "cross-module", "bug-localization", "architecture"}
 REQUIRED_FIELDS = ("id", "category", "prompt", "required_files", "required_symbols")
 
-MIN_AB_TASKS = 20            # roadmap Phase 0: 20-30 real tasks
+MIN_AB_TASKS = 50            # grew past Phase 0's 20-30 so a 2pp gate is resolvable
 TARGET_REDUCTION_PCT = 20.0  # roadmap Phase 3: median input token reduction
 TARGET_RECALL_PCT = 90.0     # roadmap Phase 2 exit / Phase 3 gate
 MAX_SUCCESS_DROP_PP = 2.0    # roadmap Phase 3: success rate drop budget

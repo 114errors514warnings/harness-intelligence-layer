@@ -233,7 +233,7 @@ get_project_context(
 
 返回结果中的 `index` 是索引状态块：`version` 为 schema 版本，`indexed_at` 为索引生成时间，`refreshed` 表示本次调用是否触发了自动重建，`stale_reason` 为重建原因（`null` 表示索引本来就是最新的）。`retrieval` 说明本次用了哪条检索路径（`mode`、`backend`、`reranked`）。`sufficient` 为 `false` 时 `fallback` 会给出明确原因，提示应改用 Harness 原生搜索，而不是把空包当成"项目里没有相关内容"。`notice` 会复述同样的信息；只有显式跳过检查时才会出现 `WARNING: index is stale`。
 
-`task` 的写法直接影响召回率，请写成"一句话 + 你已知的英文标识符"。在本仓库 26 个真实任务上的实测结果（2026-10-11，第二轮检索修正后）：只写中文自然语言平均召回 59.3%（10/26 达标），补充标识符后 96.2%（23/26 达标）——补标识符的写法已达 90% 目标，且没有任何必召回文件被漏掉。剩余缺口只有一类：纯中文提问与英文实现之间缺少词面重叠（跨语言匹配，词法检索解决不了）。详见 `docs/roadmap.md` §4 的 Phase 2 修正记录与缺口归因。
+`task` 的写法直接影响召回率，请写成"一句话 + 你已知的英文标识符"。在本仓库 50 个真实任务上的实测结果（2026-10-11，索引 schema 3）：只写中文自然语言平均召回 50.8%（16/50 达标），补充标识符后 98.5%（48/50 达标）——补标识符的写法已达 90% 目标，且几乎不漏必召回文件。剩余缺口只有一类：纯中文提问与英文实现之间缺少词面重叠（跨语言匹配，词法检索解决不了）。详见 `docs/roadmap.md` §4 的检索修正记录与缺口归因。
 
 ### `search_project_memory`
 
@@ -370,7 +370,7 @@ python -m harness_intelligence.cli context "任务" $targetProject --no-refresh
 ## 8. 推荐调用策略
 
 - 陌生仓库、跨模块任务和故障定位：先调用 `get_project_context`。
-- **把已知的英文标识符写进 `task`**：文件名、符号名、配置项、错误码、CLI 参数。这是当前召回率的最大影响因素：本仓库 26 个真实任务中，纯中文表达平均召回 59.3%，补充标识符后为 96.2%（已达 90% 目标）。
+- **把已知的英文标识符写进 `task`**：文件名、符号名、配置项、错误码、CLI 参数。这是当前召回率的最大影响因素：本仓库 50 个真实任务中，纯中文表达平均召回 50.8%，补充标识符后为 98.5%（已达 90% 目标）。
 - 新仓库首次使用：调用一次 `index_project`；此后的文件变化无需手动刷新。
 - 已知路径的单文件任务：直接读取文件，避免额外 MCP 往返。
 - 文档类问题（例如"roadmap 怎么写"）：文档片段已能与代码片段竞争，`HIL-017`、`HIL-018` 在 `raw` 与 `hinted` 两个变体下都已能召回；第二轮修正（路径匹配精确化、文件级加成不再被窗口体积稀释、每文件一个窄窗口）正是为了消除测试文件挤占文档预算的问题。直接读取文档仍然是更快的做法，但不再是必需。
@@ -385,7 +385,7 @@ python -m harness_intelligence.cli context "任务" $targetProject --no-refresh
 ```powershell
 Set-Location -LiteralPath "D:\MY\My Projects\HarnessIntelligenceLayer"
 $env:PYTHONPATH = "src"
-python -m unittest discover -s tests -v   # 132 项，含 MCP stdio 端到端往返、跨 Harness 记忆复用、可选语义后端回退
+python -m unittest discover -s tests -v   # 134 项，含 MCP stdio 端到端往返、跨 Harness 记忆复用、可选语义后端回退
 python benchmarks/verify.py               # 跨阶段验证与回归门；SKIP 表示本机无法运行，不计为通过
 python benchmarks/evidence.py             # Phase 4 证据门；报告四条触发条件是否成立
 ```

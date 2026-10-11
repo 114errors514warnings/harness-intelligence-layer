@@ -63,8 +63,9 @@ DEFAULT_BASELINE = BENCHMARKS_DIR / "results" / "baseline.json"
 #: change the corpus that the next measurement run reads.
 GENERATED_REPORT_GLOB = "hil_*.json"
 
-#: One task flipping from recalled to missed moves the 26-task mean by ~3.8pp, so
-#: the gate tolerates two tasks of legitimate drift before it fires (~8pp).
+#: One task flipping from recalled to missed moves the mean by 100/50 = 2.0pp on
+#: the 50-task corpus, so the gate tolerates about four tasks of legitimate drift
+#: before it fires (~8pp). It was set when the corpus held 26 tasks (3.8pp/task).
 RECALL_TOLERANCE_PP = 8.0
 TARGET_MET_TOLERANCE = 2
 PACKAGE_TOKEN_TOLERANCE_PCT = 5.0
