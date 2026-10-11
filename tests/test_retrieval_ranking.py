@@ -8,6 +8,7 @@ from harness_intelligence.indexer import index_project
 from harness_intelligence.retrieval import (
     MAX_WINDOWS,
     MAX_WINDOW_TOKENS,
+    PATH_HIT_WEIGHT,
     _entry_candidates,
     _windows,
     get_project_context,
@@ -89,11 +90,35 @@ class FragmentScoringTests(unittest.TestCase):
     def test_a_path_hit_is_a_candidate_without_any_content_hit(self) -> None:
         found = candidates("nothing matches here\n", ["indexer"], path="src/indexer.py")
         self.assertEqual(len(found), 1)
-        self.assertEqual(found[0].score, 8.0)
+        self.assertEqual(found[0].score, PATH_HIT_WEIGHT)
         self.assertIn("path:indexer", found[0].reasons)
+
+    def test_a_generic_short_term_does_not_match_a_path_segment(self) -> None:
+        # "git" used to hit ".github/" and "ai" used to hit "openai.yaml": a flat
+        # path bonus on files that have nothing to do with the question, which
+        # crowded the file that actually answers it out of the budget.
+        self.assertEqual(candidates("unrelated body\n", ["git"], path=".github/workflows/ci.yml"), [])
+        self.assertEqual(candidates("unrelated body\n", ["ai"], path="skills/agents/openai.yaml"), [])
+
+    def test_a_long_enough_term_still_matches_a_path_segment_by_prefix(self) -> None:
+        # The length gate must not cost a file the caller actually named:
+        # "token" still reaches tokens.py, "index" still reaches indexer.py.
+        for term, path in (("token", "src/tokens.py"), ("index", "src/indexer.py")):
+            found = candidates("unrelated body\n", [term], path=path)
+            self.assertEqual(len(found), 1, f"{term} -> {path}")
+            self.assertEqual(found[0].score, PATH_HIT_WEIGHT)
 
     def test_a_file_without_any_hit_yields_nothing(self) -> None:
         self.assertEqual(candidates("nothing matches here\n", ["indexer"]), [])
+
+    def test_a_file_known_only_by_a_symbol_yields_its_definition_window(self) -> None:
+        symbols = [{"name": "staleness_reason", "kind": "function", "line": 3}]
+        text = "one\ntwo\ndef staleness_reason(root, payload):\n    return None\n"
+        found = candidates(text, ["staleness_reason"], symbols)
+        self.assertTrue(found)
+        self.assertTrue(
+            any(fragment.start_line <= 3 <= fragment.end_line for fragment in found)
+        )
 
     def test_terms_are_matched_case_insensitively(self) -> None:
         found = candidates("Load_Index()\n", ["load_index"])

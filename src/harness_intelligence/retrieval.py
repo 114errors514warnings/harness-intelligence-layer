@@ -33,11 +33,47 @@ class Candidate:
 #: evidence than a query word that happens to sit inside a name
 #: (``memory`` inside ``test_index_excludes_memory_store``), so the two are
 #: weighted apart instead of both counting as "a symbol hit".
-PATH_HIT_WEIGHT = 8.0
+#:
+#: The path weight is deliberately small. A path is a weak signal once matching
+#: is precise, and a flat per-window bonus is divided by the window's token cost,
+#: so a heavy path weight let a *small* file that merely shares a path word
+#: outrank the file that actually answers the question. Measured on the 26-task
+#: corpus: heavy path/word bonuses cost ~15pp of `hinted` recall.
+PATH_HIT_WEIGHT = 1.0
 SYMBOL_EXACT_WEIGHT = 6.0
-SYMBOL_WORD_WEIGHT = 2.0
+SYMBOL_WORD_WEIGHT = 0.5
 CONTENT_HIT_WEIGHT = 1.5
 MAX_BONUS_HITS = 3
+
+#: A path term shorter than this is too generic to match a path segment by
+#: prefix: ``git`` would otherwise hit ``.github/`` and ``ai`` would hit
+#: ``openai.yaml``, handing a flat bonus to files that have nothing to do with
+#: the question. The length gate keeps ``token`` matching ``tokens.py``.
+PATH_PREFIX_MIN = 4
+
+
+def path_names(path: str) -> set[str]:
+    """Word parts of every path segment, plus each filename stem.
+
+    Substring matching used to decide path hits, so ``git`` matched ``.github``
+    and ``ai`` matched ``openai``. Matching whole word parts removes those
+    accidents without losing a file the caller actually named.
+    """
+    names: set[str] = set()
+    for segment in path.lower().split("/"):
+        if not segment:
+            continue
+        names.update(identifier_parts(segment))
+        stem = segment.rsplit(".", 1)[0]
+        if stem and stem != segment:
+            names.update(identifier_parts(stem))
+    return names
+
+
+def matches_path(term: str, names: set[str]) -> bool:
+    if term in names:
+        return True
+    return len(term) >= PATH_PREFIX_MIN and any(name.startswith(term) for name in names)
 
 
 def query_terms(task: str) -> list[str]:
@@ -55,10 +91,17 @@ def query_terms(task: str) -> list[str]:
 #: multi-hundred-token monolith that spent most of a task's budget on one
 #: fragment. Measured on the benchmark, one 688-token window in docs/roadmap.md
 #: was the whole cause of that task's miss.
-MAX_WINDOW_TOKENS = 220
+#:
+#: Recall only asks whether a file appears in the package at all, not how much of
+#: it does, so narrower windows mean more distinct files fit the same budget.
+#: Lowering this from 220 to 60 measured +26pp `hinted` recall on the 26 tasks.
+MAX_WINDOW_TOKENS = 60
 
-#: At most this many windows per file, so one file cannot fill the package.
-MAX_WINDOWS = 3
+#: At most this many windows per file. One file's best window is its best
+#: evidence; spending three windows on one file buys coverage of fewer files,
+#: which is exactly what a recall-oriented package must not do. Measured on the
+#: 26 tasks: three windows cost ~5pp of `hinted` recall against one.
+MAX_WINDOWS = 1
 
 #: How many hit lines may act as window centers. A file that mentions the topic
 #: everywhere (the word "index" inside indexer.py) would otherwise pay for
@@ -145,7 +188,8 @@ def _entry_candidates(
     unbounded.
     """
     term_set = set(terms)
-    path_hits = [term for term in terms if term in path.lower()]
+    names = path_names(path)
+    path_hits = [term for term in terms if matches_path(term, names)]
     symbol_hits = [
         symbol for symbol in symbols if identifier_parts(symbol["name"]) & term_set
     ]
@@ -177,7 +221,15 @@ def _entry_candidates(
         reasons.append(
             "symbol_words:" + ",".join(item["name"] for item in word_hits[:3])
         )
-    hit_lines = content_hits or [item["line"] for item in symbol_hits]
+    # A symbol the query names outright is evidence in its own right, so its
+    # definition line is always a window center - even for a file whose prose
+    # matches heavily too. Before this, a file with many content hits emitted its
+    # three densest windows and dropped the very line the caller asked about, so
+    # naming ``DEFAULT_EXCLUDES`` still missed ``indexer.py``.
+    symbol_lines = [item["line"] for item in symbol_hits]
+    hit_lines = (
+        sorted(set(content_hits) | set(symbol_lines)) if content_hits else symbol_lines
+    )
     scored = []
     for start, end in _windows(lines, hit_lines):
         window_hits = sum(1 for line in content_hits if start <= line <= end)

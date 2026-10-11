@@ -233,7 +233,7 @@ get_project_context(
 
 返回结果中的 `index` 是索引状态块：`version` 为 schema 版本，`indexed_at` 为索引生成时间，`refreshed` 表示本次调用是否触发了自动重建，`stale_reason` 为重建原因（`null` 表示索引本来就是最新的）。`retrieval` 说明本次用了哪条检索路径（`mode`、`backend`、`reranked`）。`sufficient` 为 `false` 时 `fallback` 会给出明确原因，提示应改用 Harness 原生搜索，而不是把空包当成"项目里没有相关内容"。`notice` 会复述同样的信息；只有显式跳过检查时才会出现 `WARNING: index is stale`。
 
-`task` 的写法直接影响召回率，请写成"一句话 + 你已知的英文标识符"。在本仓库 26 个真实任务上的实测结果（2026-10-05，检索修正后）：只写中文自然语言平均召回 47.8%（7/26 达标），补充标识符后 69.9%（15/26 达标），两者都未达到 90% 目标。剩余缺口有两类：纯中文提问与英文实现之间缺少词面重叠（跨语言匹配，词法检索解决不了），以及文档类任务与测试文件争夺预算。详见 `docs/roadmap.md` §4 的 Phase 2 修正记录与缺口归因。
+`task` 的写法直接影响召回率，请写成"一句话 + 你已知的英文标识符"。在本仓库 26 个真实任务上的实测结果（2026-10-11，第二轮检索修正后）：只写中文自然语言平均召回 59.3%（10/26 达标），补充标识符后 92.3%（21/26 达标）——补标识符的写法已达 90% 目标，且没有任何必召回文件被漏掉。剩余缺口只有一类：纯中文提问与英文实现之间缺少词面重叠（跨语言匹配，词法检索解决不了）。详见 `docs/roadmap.md` §4 的 Phase 2 修正记录与缺口归因。
 
 ### `search_project_memory`
 
@@ -370,10 +370,10 @@ python -m harness_intelligence.cli context "任务" $targetProject --no-refresh
 ## 8. 推荐调用策略
 
 - 陌生仓库、跨模块任务和故障定位：先调用 `get_project_context`。
-- **把已知的英文标识符写进 `task`**：文件名、符号名、配置项、错误码、CLI 参数。这是当前召回率的最大影响因素：本仓库 26 个真实任务中，纯中文表达平均召回 47.8%，补充标识符后为 69.9%。
+- **把已知的英文标识符写进 `task`**：文件名、符号名、配置项、错误码、CLI 参数。这是当前召回率的最大影响因素：本仓库 26 个真实任务中，纯中文表达平均召回 59.3%，补充标识符后为 92.3%（已达 90% 目标）。
 - 新仓库首次使用：调用一次 `index_project`；此后的文件变化无需手动刷新。
 - 已知路径的单文件任务：直接读取文件，避免额外 MCP 往返。
-- 文档类问题（例如"roadmap 怎么写"）：修正后文档片段已能与代码片段竞争（`raw` 变体下 `HIL-017`、`HIL-018` 由 0% 升至 100%），但补充标识符对文档类任务没有帮助（`hinted` 下这两条仍是 0%，标识符会把预算引向代码文件），直接读取文档仍是更稳的做法。
+- 文档类问题（例如"roadmap 怎么写"）：文档片段已能与代码片段竞争，`HIL-017`、`HIL-018` 在 `raw` 与 `hinted` 两个变体下都已能召回；第二轮修正（路径匹配精确化、文件级加成不再被窗口体积稀释、每文件一个窄窗口）正是为了消除测试文件挤占文档预算的问题。直接读取文档仍然是更快的做法，但不再是必需。
 - 默认 token 预算从 800–2000 开始，根据召回情况调整。
 - HIL 返回结果用于缩小阅读范围，关键修改前仍需核对真实代码。
 - 只有明确为长期事实的内容才写入 `.ai-memory`。`.ai-memory` 位于它所描述的项目内，属于另一个项目的事实对本次检索只是噪声、还要占同一条 token 预算，因此记录时只收本项目事实；每条记录会带上所属项目路径（`project` 字段），让误写可以被检查而不是靠猜。
@@ -385,7 +385,7 @@ python -m harness_intelligence.cli context "任务" $targetProject --no-refresh
 ```powershell
 Set-Location -LiteralPath "D:\MY\My Projects\HarnessIntelligenceLayer"
 $env:PYTHONPATH = "src"
-python -m unittest discover -s tests -v   # 128 项，含 MCP stdio 端到端往返、跨 Harness 记忆复用、可选语义后端回退
+python -m unittest discover -s tests -v   # 131 项，含 MCP stdio 端到端往返、跨 Harness 记忆复用、可选语义后端回退
 python benchmarks/verify.py               # 跨阶段验证与回归门；SKIP 表示本机无法运行，不计为通过
 python benchmarks/evidence.py             # Phase 4 证据门；报告四条触发条件是否成立
 ```
