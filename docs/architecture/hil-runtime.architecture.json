@@ -9,7 +9,7 @@
     "repository": {
       "url": "git@github.com:114errors514warnings/harness-intelligence-layer.git",
       "link_mode": "local-only",
-      "revision": "0b9771da6c14b31562428a4c3a84d9f50ad28be2"
+      "revision": "53b089c91cf4425ab903e4c2f3e814b16cd35c26"
     }
   },
   "components": [
@@ -41,8 +41,8 @@
       "pos": [622, 340],
       "size": [180, 70],
       "sources": [
-        { "path": "src/harness_intelligence/retrieval.py", "line": 296, "label": "get_project_context" },
-        { "path": "src/harness_intelligence/retrieval.py", "line": 396, "label": "sufficient / fallback" }
+        { "path": "src/harness_intelligence/retrieval.py", "line": 304, "label": "get_project_context" },
+        { "path": "src/harness_intelligence/retrieval.py", "line": 404, "label": "sufficient / fallback" }
       ]
     },
     {
@@ -120,13 +120,15 @@
       "items": [
         "中文按 2/3 字 n-gram 切分；标识符按蛇形/驼峰词部件匹配",
         "路径按词部件精确匹配（git 不再命中 .github），文件级加成不随窗口体积稀释",
-        "片段级评分：命中密度 ÷ token 成本；每文件一个窗口、上限 60 token，互不重叠"
+        "片段级评分：命中密度 ÷ token 成本；每文件一个窗口、上限 60 token，互不重叠",
+        "查询点名的标识符所在窗口优先于命中密度发射（named_symbol）"
       ]
     },
     {
       "dot": "amber",
       "title": "Phase 3 门槛",
       "items": [
+        "首次真实 A/B（OpenClaw + deepseek-v4-flash，26 题 × 2 臂）：token −45.9%、召回 96.2%、重试 0→0 达标，成功率 100%→96.2% 未达标",
         "中位输入 token 降低 ≥ 20%",
         "Context Recall ≥ 90%；成功率下降 ≤ 2 个百分点",
         "平均重试次数不增加；跨 Harness 记忆复用成功",
@@ -137,7 +139,7 @@
       "dot": "violet",
       "title": "Phase 4 证据门",
       "items": [
-        "词法 Recall：hinted 92.3% 已达标，raw 59.3% 未达标 → 可选 Embedding / Reranker（FIRED）",
+        "词法 Recall：hinted 96.2% 已达标，raw 59.3% 未达标 → 可选 Embedding / Reranker（FIRED）",
         "≥ 100 条可比结果 → Model Router（当前 0 条，未触发）",
         "修改质量不可比 → Unified Validator（未举证）",
         "P95 ≥ 1s → 向量存储（当前约 60–80 ms，未触发）"
