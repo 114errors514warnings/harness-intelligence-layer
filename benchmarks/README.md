@@ -40,7 +40,7 @@
 ## 3. 运行 HIL 侧测量
 
 ```powershell
-Set-Location -LiteralPath "D:\MY\My Projects\HarnessIntelligenceLayer"
+Set-Location -LiteralPath "<hil-root>"
 $env:PYTHONPATH = "src"
 python benchmarks/measure.py --budget 1500 --label hil
 ```

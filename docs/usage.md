@@ -14,8 +14,8 @@ HIL 将项目知识分为两个部分：
 以下示例假设：
 
 ```powershell
-$hilRoot = "D:\MY\My Projects\HarnessIntelligenceLayer"
-$targetProject = "D:\MY\My Projects\YourProject"
+$hilRoot = "<hil-root>"
+$targetProject = "<project-root>"
 ```
 
 如果要索引 HIL 项目本身，则将 `$targetProject` 设置为 `$hilRoot`。目标项目必须是本机可访问的目录，建议使用绝对路径，避免不同 Harness 的工作目录不一致。
@@ -31,7 +31,7 @@ $targetProject = "D:\MY\My Projects\YourProject"
 ```text
 请调用 HIL 的 index_project，为以下项目建立知识库索引：
 
-D:\MY\My Projects\YourProject
+<project-root>
 ```
 
 OpenClaw/Cline 会自动启动 HIL MCP Server、调用 `index_project`，并在目标项目内生成 `.hil/index.json`。用户不需要提前运行 `run_hil_mcp.py`，也不需要保持额外的终端窗口。
@@ -161,8 +161,8 @@ HIL 使用 STDIO MCP。OpenClaw、Cline CLI 和 Cline VS Code 扩展都是 MCP �
 当前配置的启动命令为：
 
 ```powershell
-C:\Python314\python.exe `
-  "D:\MY\My Projects\HarnessIntelligenceLayer\run_hil_mcp.py"
+<python.exe> `
+  "<hil-root>\run_hil_mcp.py"
 ```
 
 正常工作流程为：
@@ -216,7 +216,7 @@ V0.1 使用本地词法检索，不依赖云 Embedding 或外部向量数据库�
 建立或完整刷新目标项目索引：
 
 ```text
-index_project(project_root="D:\MY\My Projects\YourProject")
+index_project(project_root="<project-root>")
 ```
 
 ### `get_project_context`
@@ -226,7 +226,7 @@ index_project(project_root="D:\MY\My Projects\YourProject")
 ```text
 get_project_context(
   task="定位订单创建失败的根因（create_order、idempotency_key、retry handler）",
-  project_root="D:\MY\My Projects\YourProject",
+  project_root="<project-root>",
   token_budget=1500
 )
 ```
@@ -242,7 +242,7 @@ get_project_context(
 ```text
 search_project_memory(
   query="订单状态机约束",
-  project_root="D:\MY\My Projects\YourProject",
+  project_root="<project-root>",
   limit=5
 )
 ```
@@ -256,7 +256,7 @@ record_project_memory(
   category="bugs",
   title="Duplicate order root cause",
   content="The retry handler reused an expired idempotency key.",
-  project_root="D:\MY\My Projects\YourProject",
+  project_root="<project-root>",
   tags=["orders", "idempotency"]
 )
 ```
@@ -291,7 +291,7 @@ openclaw mcp reload
 先调用 hil__get_project_context：
 
 task="定位项目索引和 token 预算选择的实现"
-project_root="D:\MY\My Projects\HarnessIntelligenceLayer"
+project_root="<hil-root>"
 token_budget=1000
 
 根据返回的上下文总结相关文件、符号和依赖，不修改代码。
@@ -326,7 +326,7 @@ cline
 不要先全量搜索仓库。请调用 hil 的 get_project_context：
 
 task="分析认证模块入口、令牌校验和调用关系"
-project_root="D:\MY\My Projects\YourProject"
+project_root="<project-root>"
 token_budget=1200
 
 先报告 HIL 找到的文件和符号，再决定是否需要补充读取。
@@ -358,8 +358,8 @@ OpenCode V2 的 MCP 配置与 Cline 不同：本地 Server 放在 `mcp.servers.<
       "hil": {
         "type": "local",
         "command": [
-          "C:\\Python314\\python.exe",
-          "D:\\MY\\My Projects\\HarnessIntelligenceLayer\\run_hil_mcp.py"
+          "<python.exe>",
+          "<hil-root>\\run_hil_mcp.py"
         ]
       }
     }
@@ -429,7 +429,7 @@ python -m harness_intelligence.cli context "任务" $targetProject --no-refresh
 运行项目测试：
 
 ```powershell
-Set-Location -LiteralPath "D:\MY\My Projects\HarnessIntelligenceLayer"
+Set-Location -LiteralPath "<hil-root>"
 $env:PYTHONPATH = "src"
 python -m unittest discover -s tests -v   # 154 项，含 MCP stdio 端到端往返、跨 Harness 记忆复用、可选语义后端回退
 python benchmarks/verify.py               # 跨阶段验证与回归门；SKIP 表示本机无法运行，不计为通过
@@ -444,7 +444,7 @@ python benchmarks/evidence.py             # Phase 4 证据门；报告四条触�
 2. 确认请求中的 `project_root` 指向正确项目。
 3. 运行 `openclaw mcp probe hil --json`、`cline config mcp --json` 或 `opencode mcp list`。
 4. 如果报 "project is on the HIL denylist"，从 `~/.config/harness-intelligence/denied_projects.txt`（或 `HIL_DENYLIST`）里移除该项目。
-5. 确认 `C:\Python314\python.exe` 与 `run_hil_mcp.py` 存在。
+5. 确认 `<python.exe>` 与 `run_hil_mcp.py` 存在。
 6. 在 Harness 中显式要求调用 `get_project_context`。
 7. 查看返回值的 `index` 字段：`refreshed` 为 `true` 说明本次已自动重建；若 `notice` 出现 `WARNING: index is stale`，说明该次调用跳过了检查，请去掉 `--no-refresh` 或调用 `index_project`。
 8. 召回明显偏低时，先把 `task` 改写成"一句话 + 英文标识符"再重试，并对照 `benchmarks/` 的基线判断是否属于已知的文档召回缺口。

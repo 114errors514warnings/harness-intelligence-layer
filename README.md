@@ -33,7 +33,7 @@
 HIL 是 `dependency-light` 项目，官方依赖只有 `mcp`。**推荐路径不需要安装**，直接在仓库根目录运行：
 
 ```powershell
-Set-Location -LiteralPath "D:\MY\My Projects\HarnessIntelligenceLayer"
+Set-Location -LiteralPath "<hil-root>"
 $env:PYTHONPATH = "src"
 
 python -m harness_intelligence.cli index .
@@ -62,10 +62,10 @@ MCP 服务使用 stdio。把 `python run_hil_mcp.py`（或安装后的 `hil-mcp`
 
 ```json
 {
-  "command": "C:\\Python314\\python.exe",
-  "args": ["D:\\MY\\My Projects\\HarnessIntelligenceLayer\\run_hil_mcp.py"],
-  "env": { "HIL_PROJECT_ROOT": "D:\\MY\\My Projects\\YourProject" },
-  "cwd": "D:\\MY\\My Projects\\HarnessIntelligenceLayer",
+  "command": "<python.exe>",
+  "args": ["<hil-root>\\run_hil_mcp.py"],
+  "env": { "HIL_PROJECT_ROOT": "<project-root>" },
+  "cwd": "<hil-root>",
   "requestTimeoutMs": 60000
 }
 ```
