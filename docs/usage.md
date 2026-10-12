@@ -386,8 +386,8 @@ C:\Users\<你>\.config\harness-intelligence\denied_projects.txt
 每行一条**绝对路径**（`#` 注释、空行忽略），父目录会连同整棵子树一起拒绝。被拒时四个 MCP 工具与 CLI 都会报错并指出是哪条规则命中的：
 
 ```text
-project is on the HIL denylist (D:\MY\My Projects\ConTextOptimizer); remove it from
-C:\Users\Luzern\.config\harness-intelligence\denied_projects.txt or HIL_DENYLIST
+project is on the HIL denylist (D:\path\to\deprecated-project); remove it from
+C:\Users\<你>\.config\harness-intelligence\denied_projects.txt or HIL_DENYLIST
 ```
 
 也可用环境变量 `HIL_DENYLIST`（多条用系统路径分隔符 `;`）临时追加，`HIL_DENYLIST_FILE` 覆盖名单文件位置。黑名单在 Harness 边界（MCP 工具与 CLI）生效，库层不拦截，这样 `benchmarks/` 仍能有意地测量任意目录。

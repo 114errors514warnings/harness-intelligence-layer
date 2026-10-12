@@ -1,6 +1,6 @@
 # 架构图（Archify）
 
-本目录是可交互的 Archify 架构图成品与它的 Typed Source：
+本目录是可交互的 [Archify](https://github.com/tt-a1i/archify) 架构图成品与它的 Typed Source：
 
 | 文件 | 说明 |
 |---|---|
