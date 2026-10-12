@@ -231,9 +231,9 @@ get_project_context(
 )
 ```
 
-返回结果中的 `index` 是索引状态块：`version` 为 schema 版本，`indexed_at` 为索引生成时间，`refreshed` 表示本次调用是否触发了自动重建，`stale_reason` 为重建原因（`null` 表示索引本来就是最新的）。`notice` 会复述同样的信息；只有显式跳过检查时才会出现 `WARNING: index is stale`。
+返回结果中的 `index` 是索引状态块：`version` 为 schema 版本，`indexed_at` 为索引生成时间，`refreshed` 表示本次调用是否触发了自动重建，`stale_reason` 为重建原因（`null` 表示索引本来就是最新的）。`retrieval` 说明本次用了哪条检索路径（`mode`、`backend`、`reranked`）。`sufficient` 为 `false` 时 `fallback` 会给出明确原因，提示应改用 Harness 原生搜索，而不是把空包当成"项目里没有相关内容"。`notice` 会复述同样的信息；只有显式跳过检查时才会出现 `WARNING: index is stale`。
 
-`task` 的写法仍会影响召回率，请写成"一句话 + 你已知的英文标识符"。在本仓库 26 个真实任务上的实测结果（2026-10-08，完成跨语言词面桥接后）：只写中文自然语言平均召回 68.9%（11/26 达标），补充标识符后 68.9%（14/26 达标），两者都未达到 90% 目标。桥接让纯中文提问接近"补标识符"的水平，因此标识符不再是硬门槛，但直接写出仍然更准。剩余缺口是词表未覆盖的中英对，以及文档类任务与测试文件争夺预算。详见 `docs/roadmap.md` §4 的 Phase 2 修正记录与缺口归因。
+`task` 的写法直接影响召回率，请写成"一句话 + 你已知的英文标识符"。在本仓库 50 个真实任务上的实测结果（2026-10-12，索引 schema 3，含 Phase 5 §7.1 中英术语桥）：只写中文自然语言平均召回 70.5%（20/50 达标），补充标识符后 98.5%（48/50 达标）。**只写中文自然语言是用户最自然的输入，它 70.5%——这是当前已知缺陷，不是"不推荐的用法"**；术语桥已把它从 50.8% 提上来，剩余缺口是纯中文提问与英文实现之间缺少词面重叠（跨语言匹配，正在按 `docs/roadmap.md` §7 Phase 5 继续推进）。
 
 ### `search_project_memory`
 
@@ -416,10 +416,10 @@ python -m harness_intelligence.cli context "任务" $targetProject --no-refresh
 ## 9. 推荐调用策略
 
 - 陌生仓库、跨模块任务和故障定位：先调用 `get_project_context`。
-- **把已知的英文标识符写进 `task`**：文件名、符号名、配置项、错误码、CLI 参数。这是当前召回率的最大影响因素：本仓库 26 个真实任务中，纯中文表达平均召回 47.8%，补充标识符后为 69.9%。
+- **把已知的英文标识符写进 `task`**：文件名、符号名、配置项、错误码、CLI 参数。这是当前召回率的最大影响因素：本仓库 50 个真实任务中，纯中文表达平均召回 70.5%，补充标识符后为 98.5%（已达 90% 目标）。
 - 新仓库首次使用：调用一次 `index_project`；此后的文件变化无需手动刷新。
 - 已知路径的单文件任务：直接读取文件，避免额外 MCP 往返。
-- 文档类问题（例如"roadmap 怎么写"）：修正后文档片段已能与代码片段竞争（`raw` 变体下 `HIL-017`、`HIL-018` 由 0% 升至 100%），但补充标识符对文档类任务没有帮助（`hinted` 下这两条仍是 0%，标识符会把预算引向代码文件），直接读取文档仍是更稳的做法。
+- 文档类问题（例如"roadmap 怎么写"）：文档片段已能与代码片段竞争，`HIL-017`、`HIL-018` 在 `raw` 与 `hinted` 两个变体下都已能召回；第二轮修正（路径匹配精确化、文件级加成不再被窗口体积稀释、每文件一个窄窗口）正是为了消除测试文件挤占文档预算的问题。直接读取文档仍然是更快的做法，但不再是必需。
 - 默认 token 预算从 800–2000 开始，根据召回情况调整。
 - HIL 返回结果用于缩小阅读范围，关键修改前仍需核对真实代码。
 - 只有明确为长期事实的内容才写入 `.ai-memory`。`.ai-memory` 位于它所描述的项目内，属于另一个项目的事实对本次检索只是噪声、还要占同一条 token 预算，因此记录时只收本项目事实；每条记录会带上所属项目路径（`project` 字段），让误写可以被检查而不是靠猜。
@@ -431,8 +431,9 @@ python -m harness_intelligence.cli context "任务" $targetProject --no-refresh
 ```powershell
 Set-Location -LiteralPath "D:\MY\My Projects\HarnessIntelligenceLayer"
 $env:PYTHONPATH = "src"
-python -m unittest discover -s tests -v   # 104 项，含 MCP stdio 端到端往返、评测门与语料自洽性
+python -m unittest discover -s tests -v   # 154 项，含 MCP stdio 端到端往返、跨 Harness 记忆复用、可选语义后端回退
 python benchmarks/verify.py               # 跨阶段验证与回归门；SKIP 表示本机无法运行，不计为通过
+python benchmarks/evidence.py             # Phase 4 证据门；报告四条触发条件是否成立
 ```
 
 `benchmarks/verify.py` 的检查清单与容差见 `benchmarks/README.md` §6。它覆盖单元测试覆盖不到的部分：真实包的行号自洽、两条文件发现路径得到同一文件集、相对基线 `benchmarks/results/baseline.json` 的召回回归、索引与源码集对齐、以及 `--compare` 的三种退出码（3 数据不可用 / 1 未达门槛 / 0 全部通过）。
@@ -460,6 +461,7 @@ HIL 能减少重复搜索，但不能在没有对照数据时保证固定节省�
 
 本仓库已经把该流程脚本化：任务集在 `benchmarks/tasks.jsonl`，统计与门槛判定在 `benchmarks/measure.py`，填写与判定步骤见 `benchmarks/README.md`。当前状态：
 
-- HIL 侧指标可直接复现（召回、包体积、延迟、重复片段）；
+- HIL 侧指标可直接复现（召回、包体积、延迟、重复片段），并可用 `--embedding auto|hash` 增加一条语义重排对照臂；
+- A/B 判定覆盖 roadmap §5 的五道门槛（token、Recall、成功率、重试次数、跨 Harness 复用），随机分组种子与两臂执行顺序都会记录；
 - 原生基线尚未填写；A/B 表未填满时脚本会拒绝输出节省比例（退出码 3）；
 - 因此本仓库目前不宣称任何固定节省百分比。

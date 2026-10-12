@@ -30,6 +30,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Use the stored index as-is instead of re-checking it against the working tree",
     )
+    context.add_argument(
+        "--embedding",
+        choices=("off", "auto", "on", "hash"),
+        default=None,
+        help=(
+            "Optional semantic re-ranking (default: HIL_EMBEDDINGS, else off). "
+            "'auto'/'on' probe installed backends; 'hash' is the offline helper. "
+            "Any unavailable backend degrades to local lexical retrieval."
+        ),
+    )
 
     search = commands.add_parser("memory-search", help="Search project memory")
     search.add_argument("query")
@@ -56,7 +66,11 @@ def main() -> None:
         elif args.command == "context":
             _print(
                 get_project_context(
-                    args.task, root, args.budget, refresh_index=not args.no_refresh
+                    args.task,
+                    root,
+                    args.budget,
+                    refresh_index=not args.no_refresh,
+                    embedding=args.embedding,
                 )
             )
         elif args.command == "memory-search":

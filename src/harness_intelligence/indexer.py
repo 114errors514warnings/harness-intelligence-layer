@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Iterable
 
 
-INDEX_VERSION = 2
+INDEX_VERSION = 3
 DEFAULT_EXCLUDES = {
     ".ai-memory", ".git", ".hil", ".venv", "node_modules", "dist", "build", "__pycache__"
 }
@@ -28,6 +28,10 @@ TEXT_SUFFIXES = {
 }
 
 SYMBOL_PATTERNS = [
+    # Module-level constants. Without this a query that names ``MAX_TERMS`` or
+    # ``DEFAULT_EXCLUDES`` had no symbol to anchor on, so the emitted window was
+    # chosen by hit density and often did not contain the constant's own line.
+    ("constant", re.compile(r"^([A-Z][A-Z0-9_]{2,})\s*[:=]")),
     ("class", re.compile(r"^\s*(?:export\s+)?class\s+([A-Za-z_$][\w$]*)")),
     ("function", re.compile(r"^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)")),
     ("function", re.compile(r"^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)")),

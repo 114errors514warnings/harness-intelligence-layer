@@ -10,3 +10,11 @@ benchmarks/results/
 # stray memory record dropped there on 2026-10-06 sat one index refresh away
 # from competing for the same token budget (.json is an indexed suffix).
 _tmp/
+
+# Archify diagram workspaces and delivered diagrams are derived artifacts, and
+# both .json and .html are indexed suffixes. A rendered diagram is one large
+# inline-SVG file, so leaving it in the tree would let a generated picture
+# outrank real source for the same budget - the same defect benchmarks/results/
+# is excluded for.
+.archify/
+docs/architecture/

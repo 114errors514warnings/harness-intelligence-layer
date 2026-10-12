@@ -44,7 +44,7 @@ for _extra in (PROJECT_ROOT / "src", BENCHMARKS_DIR):
 
 import measure  # noqa: E402  (benchmarks/measure.py)
 from harness_intelligence import __version__ as HIL_VERSION  # noqa: E402
-from harness_intelligence import indexer  # noqa: E402
+from harness_intelligence import indexer, memory  # noqa: E402
 from harness_intelligence.indexer import (  # noqa: E402
     INDEX_VERSION,
     discover_files,
@@ -63,8 +63,9 @@ DEFAULT_BASELINE = BENCHMARKS_DIR / "results" / "baseline.json"
 #: change the corpus that the next measurement run reads.
 GENERATED_REPORT_GLOB = "hil_*.json"
 
-#: One task flipping from recalled to missed moves the 26-task mean by ~3.8pp, so
-#: the gate tolerates two tasks of legitimate drift before it fires (~8pp).
+#: One task flipping from recalled to missed moves the mean by 100/50 = 2.0pp on
+#: the 50-task corpus, so the gate tolerates about four tasks of legitimate drift
+#: before it fires (~8pp). It was set when the corpus held 26 tasks (3.8pp/task).
 RECALL_TOLERANCE_PP = 8.0
 TARGET_MET_TOLERANCE = 2
 PACKAGE_TOKEN_TOLERANCE_PCT = 5.0
@@ -442,7 +443,15 @@ def check_index_covers(report: Report, root: Path, baseline_path: Path) -> None:
     )
 
 
-def _write_records(path: Path, tasks: list[dict], count: int, reduction: float, filled: bool) -> None:
+def _write_records(
+    path: Path,
+    tasks: list[dict],
+    count: int,
+    reduction: float,
+    filled: bool,
+    native_retries: int = 0,
+    hil_retries: int = 0,
+) -> None:
     """Write a synthetic A/B worksheet, so the gate can be tested without a model."""
     lines = []
     for task in tasks[:count]:
@@ -455,12 +464,22 @@ def _write_records(path: Path, tasks: list[dict], count: int, reduction: float, 
                     "harness": "synthetic",
                     "prompt": task["prompt"],
                     "native": (
-                        {"input_tokens": native, "success": True, "evidence": "self-check"}
+                        {
+                            "input_tokens": native,
+                            "success": True,
+                            "retries": native_retries,
+                            "evidence": "self-check",
+                        }
                         if filled
                         else None
                     ),
                     "hil": (
-                        {"input_tokens": hil, "success": True, "evidence": "self-check"}
+                        {
+                            "input_tokens": hil,
+                            "success": True,
+                            "retries": hil_retries,
+                            "evidence": "self-check",
+                        }
                         if filled
                         else None
                     ),
@@ -471,12 +490,62 @@ def _write_records(path: Path, tasks: list[dict], count: int, reduction: float, 
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def check_cross_harness_reuse(report: Report, workspace: Path) -> None:
+    """A fact written through one harness must be readable through another.
+
+    HIL's answer to the roadmap §5 reuse requirement is structural: facts live in
+    the target project's ``.ai-memory/`` instead of a harness-private session
+    store, so any harness pointed at that project sees them. This exercises both
+    halves on a scratch project - the write names one harness as its source and
+    the reads happen with no harness involved at all.
+    """
+    print("cross-harness memory reuse")
+    root = workspace / "reuse-project"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "app.py").write_text("def run():\n    return 1\n", encoding="utf-8")
+    index_project(root)
+    written = memory.record_memory(
+        "decisions",
+        "Shared cache boundary",
+        "The identity service owns the shared cache.",
+        root,
+        ["cache", "boundary"],
+        source="cline",
+    )
+    found = memory.search_memory("shared cache boundary", root)
+    context = get_project_context("shared cache boundary", root, 800)
+    title = "Shared cache boundary"
+    report.record(
+        "a fact written through one harness is found by the memory search",
+        any(item.get("title") == title for item in found),
+        f"{len(found)} match(es)",
+    )
+    report.record(
+        "the same fact is surfaced in the context package",
+        any(item.get("title") == title for item in context["memories"]),
+        f"{len(context['memories'])} memory slice(s)",
+    )
+    stored = Path(written["path"])
+    report.record(
+        "the fact is stored in the project, not a harness-private store",
+        stored.is_file() and ".ai-memory" in stored.as_posix(),
+        stored.as_posix(),
+    )
+    indexed = {entry["path"] for entry in load_index(root)["files"]}
+    report.record(
+        "the memory store is not re-indexed as source",
+        not any(path.startswith(".ai-memory/") for path in indexed),
+        f"{len(indexed)} indexed path(s)",
+    )
+
+
 def check_ab_gate(report: Report, tasks: list[dict], workspace: Path) -> None:
     """Prove the savings gate still refuses what it is supposed to refuse.
 
     Exit codes under test: 3 (data is unusable, so no number may be reported),
     1 (data is complete but misses a Phase 3 threshold), 0 (every gate passes).
-    Code 1 had no coverage at all before this check.
+    Each Phase 3 threshold needs at least one failing case, or the gate would be
+    an assertion nobody ever saw work.
     """
     print("savings gate self-check (synthetic data, no model)")
     if len(tasks) < MIN_AB_RECORDS:
@@ -486,21 +555,48 @@ def check_ab_gate(report: Report, tasks: list[dict], workspace: Path) -> None:
     recall_file.write_text(
         json.dumps({"summary": {"mean_recall_pct": 95.0}}), encoding="utf-8"
     )
+    reuse_ok = workspace / "reuse_ok.json"
+    reuse_ok.write_text(
+        json.dumps({"success": True, "pairs": [{"found": True, "evidence": "self-check"}]}),
+        encoding="utf-8",
+    )
+    reuse_bad = workspace / "reuse_bad.json"
+    reuse_bad.write_text(
+        json.dumps({"success": False, "pairs": [{"found": False, "evidence": "self-check"}]}),
+        encoding="utf-8",
+    )
     empty = workspace / "empty.jsonl"
     below = workspace / "below.jsonl"
+    retries = workspace / "retries.jsonl"
     passing = workspace / "passing.jsonl"
     _write_records(empty, tasks, MIN_AB_RECORDS, 0.0, filled=False)
     _write_records(below, tasks, MIN_AB_RECORDS, 15.0, filled=True)
+    _write_records(retries, tasks, MIN_AB_RECORDS, 30.0, filled=True, hil_retries=3)
     _write_records(passing, tasks, MIN_AB_RECORDS, 30.0, filled=True)
     cases = (
-        ("incomplete worksheet is refused (exit 3)", empty, None, 3),
-        ("under-threshold reduction fails (exit 1)", below, str(recall_file), 1),
-        ("everything passing returns 0", passing, str(recall_file), 0),
+        ("incomplete worksheet is refused (exit 3)", empty, [], 3),
+        ("under-threshold reduction fails (exit 1)", below, ["--recall-file", str(recall_file)], 1),
+        (
+            "more retries in the HIL arm fails (exit 1)",
+            retries,
+            ["--recall-file", str(recall_file), "--reuse-file", str(reuse_ok)],
+            1,
+        ),
+        (
+            "a failed reuse gate fails (exit 1)",
+            passing,
+            ["--recall-file", str(recall_file), "--reuse-file", str(reuse_bad)],
+            1,
+        ),
+        (
+            "everything passing returns 0",
+            passing,
+            ["--recall-file", str(recall_file), "--reuse-file", str(reuse_ok)],
+            0,
+        ),
     )
-    for label, worksheet, recall, expected in cases:
-        argv = ["--compare", str(worksheet)]
-        if recall:
-            argv += ["--recall-file", recall]
+    for label, worksheet, extra, expected in cases:
+        argv = ["--compare", str(worksheet), *extra]
         with contextlib.redirect_stdout(io.StringIO()):
             code = measure.main(argv)
         report.record(label, code == expected, f"exit {code}, expected {expected}")
@@ -589,6 +685,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         report_latency(report, arms)
         check_index_covers(report, root, Path(args.baseline))
+        check_cross_harness_reuse(report, Path(tmp))
         check_ab_gate(report, tasks, Path(tmp))
 
     if args.write_baseline:

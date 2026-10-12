@@ -79,29 +79,35 @@ MCP 服务使用 stdio。把 `python run_hil_mcp.py`（或安装后的 `hil-mcp`
 3. 新增、删除或重命名文件后不必手动重建索引，检索会自愈；只有需要显式确认时再调用 `index_project`。
 4. 只有确定为可复用工程事实时才调用 `record_project_memory`。
 5. 单文件、路径明确的任务直接读取文件，避免增加一次 MCP 往返。
+6. 如果 `get_project_context` 返回 `sufficient: false`，说明本次没有任何片段命中，应改用 Harness 原生搜索；`fallback` 字段会说明原因，不要把空包当成"项目里没有相关内容"。
+7. 可选语义重排默认关闭（`HIL_EMBEDDINGS`，或 CLI `--embedding`）。它只在配置了本地多语言模型或 HTTP 端点时才有意义，任何不可用都会回退本地词法检索；其召回收益必须先由 `benchmarks/measure.py --embedding auto` 量化。
 
-V0.1 的检索对任务表达仍敏感，实测（`benchmarks/`，26 个真实任务、1500 token 预算、同一索引）：
+V0.1 的检索对任务表达仍敏感，实测（`benchmarks/`，50 个真实任务、1500 token 预算、同一索引）：
 
 | 任务表达 | 平均召回 | 达标题数（≥90%） |
 |---|---|---|
-| 只写中文自然语言 | 68.9% | 11 / 26 |
-| 中文 + 英文标识符 | 68.9% | 14 / 26 |
+| 只写中文自然语言 | 70.5% | 20 / 50 |
+| 中文 + 英文标识符 | 98.5% | 48 / 50 |
 
-`terms.GLOSSARY` 把中文短语映射为英文查询词（如 索引→index、陈旧→stale），只扩展查询侧：文档仍按字面匹配，桥接词不享受路径加成、内容命中按半权计。这使纯中文任务的平均召回由 47.8% 升到 68.9%（+21.1pp），两种表达因此接近持平。但两种都还没到 90%：词表尚未覆盖的中英对、以及文档类任务与测试文件争夺预算，是剩余缺口。缺口归因与后续选择见 `docs/roadmap.md` §4。
+所以请把 `get_project_context` 的 `task` 写成"一句话 + 相关标识符"，例如 `定位索引重建与陈旧检测（load_index、staleness_reason、INDEX_VERSION）`，而不是只写"索引是怎么更新的"。补标识符的写法达到 98.5%；**纯中文提问（用户最自然的输入）为 70.5%**——它已由 Phase 5 §7.1 的中英术语桥从 50.8% 提上来，但仍低于 90%。缺口是"中文提问与英文实现之间缺少词面重叠"这一跨语言问题，已在按 `docs/roadmap.md` §7 Phase 5 继续推进。也就是说：**用纯中文提问时，HIL 仍不能稳定找到正确的文件**，请把这当作已知缺陷而不是推荐写法。
 
 ## 验证
 
 ```powershell
 $env:PYTHONPATH = "src"
-python -m unittest discover -s tests -v      # 104 项单元测试，含 MCP stdio 端到端往返
+python -m unittest discover -s tests -v      # 154 项单元测试，含 MCP stdio 端到端往返、跨 Harness 记忆复用
 
 # Phase 0 评测：任务集召回、包体积、延迟、重复片段
 python benchmarks/measure.py --budget 1500 --label baseline --variant raw
 python benchmarks/measure.py --budget 1500 --label baseline --variant hinted
+python benchmarks/measure.py --budget 1500 --label baseline --variant hinted --embedding auto
 
 # 跨阶段验证与回归门（任务集一致性、两条文件发现路径一致、包不变量与真实行号、
-# 分类召回、相对基线的回归门、索引覆盖、--compare 三种退出码）
+# 分类召回、相对基线的回归门、索引覆盖、跨 Harness 复用、--compare 的退出码自检）
 python benchmarks/verify.py
+
+# Phase 4 证据门：四条「按证据扩展」触发条件是否成立
+python benchmarks/evidence.py
 ```
 
 `.github/workflows/ci.yml` 在 Python 3.11 / 3.13 上运行单元测试、Phase 0 任务集和 `verify.py` 回归门（基线为 `benchmarks/results/baseline.json`；`SKIP` 表示该环境无法运行某项检查，不计为通过）。token 节省比例只能在 Harness 真实会话中按 `benchmarks/README.md` 的 A/B 流程测量，本仓库不提供预设数字。

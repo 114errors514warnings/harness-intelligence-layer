@@ -37,66 +37,6 @@ CJK_NGRAM_SIZES = (2, 3)
 #: would only ever drop matches.
 MAX_TERMS = 200
 
-#: Query-side bridge for the Chinese-question/English-source gap.
-#:
-#: N-gram splitting makes a Chinese prompt match Chinese text, but the code that
-#: answers it is written in English: the run "索引陈旧检测" becomes 索引/陈旧/... and
-#: never overlaps ``indexer.py`` or ``staleness_reason``. Measured on the Phase 0
-#: task set, that is the single largest remaining recall gap (lexical retrieval
-#: cannot bridge two languages by word overlap alone).
-#:
-#: This is deliberately a *query* expansion, never a document one. Documents stay
-#: matched literally, so a Chinese query gains English lookups while no indexed
-#: file is silently rewritten - the small, reviewable list below is the entire
-#: cross-language behaviour. Keys are the Chinese phrases a developer writes;
-#: values are the English words the code actually uses. Keep both discriminative:
-#: a value that occurs in nearly every file (return, file, call) buys noise, not
-#: recall, and is spent against the same token budget.
-GLOSSARY: dict[str, tuple[str, ...]] = {
-    "索引": ("index",),
-    "重建": ("rebuild",),
-    "记忆": ("memory",),
-    "检索": ("search", "retrieval"),
-    "搜索": ("search",),
-    "查询": ("query",),
-    "符号": ("symbol",),
-    "提取": ("extract",),
-    "排除": ("exclude",),
-    "目录": ("directory",),
-    "文档": ("docs", "document"),
-    "配置": ("config",),
-    "字段": ("field",),
-    "分类": ("category",),
-    "校验": ("validate",),
-    "评分": ("score",),
-    "打分": ("score",),
-    "陈旧": ("stale",),
-    "过期": ("stale",),
-    "版本": ("version",),
-    "升级": ("upgrade",),
-    "预算": ("budget",),
-    "片段": ("fragment",),
-    "工具": ("tool",),
-    "函数": ("function",),
-    "注册": ("register",),
-    "服务": ("server",),
-    "入口": ("entry",),
-    "指纹": ("fingerprint",),
-    "元数据": ("metadata",),
-    "检测": ("detect",),
-    "依赖": ("depend",),
-    "声明": ("declare",),
-    "模式": ("pattern",),
-    "语言": ("language",),
-    "门槛": ("threshold",),
-    "阈值": ("threshold",),
-    "实验": ("experiment",),
-    "对比": ("compare",),
-    "阶段": ("phase",),
-    "边界": ("boundary",),
-    "根因": ("cause",),
-}
-
 _CJK_START = "\u3400"
 _CJK_END = "\u9fff"
 
@@ -131,22 +71,6 @@ def extract_terms(text: str, limit: int | None = MAX_TERMS) -> list[str]:
     ordered = ascii_terms + cjk_terms
     unique = list(dict.fromkeys(term.lower() for term in ordered))
     return unique[:limit] if limit is not None else unique
-
-
-def bridged_terms(text: str) -> list[str]:
-    """English lookups a Chinese prompt should also be matched against.
-
-    Only the query side calls this: the glossary turns the Chinese a developer
-    writes into the English identifiers the code uses, so a Chinese-only task can
-    reach ``indexer.py`` without the caller spelling ``index``. It is not applied
-    to the indexed text, which keeps document matching literal and keeps the
-    bridge a single reviewable list (see :data:`GLOSSARY`).
-    """
-    found: list[str] = []
-    for phrase, english in GLOSSARY.items():
-        if phrase in text:
-            found.extend(english)
-    return list(dict.fromkeys(found))
 
 
 def content_pattern(query_terms: Sequence[str]) -> re.Pattern[str] | None:

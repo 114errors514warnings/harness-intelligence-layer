@@ -1,0 +1,160 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Harness Intelligence Layer 运行时架构",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "output": ".archify/architecture-hil-20261011-153000/hil-runtime.html",
+    "repository": {
+      "url": "git@github.com:114errors514warnings/harness-intelligence-layer.git",
+      "link_mode": "local-only",
+      "revision": "c78d7e433af8cb0718f50333bf2c965cb0c59135"
+    }
+  },
+  "components": [
+    {
+      "id": "harness",
+      "type": "external",
+      "label": "AI Coding Harness",
+      "sublabel": "OpenClaw · Cline · Codex",
+      "pos": [30, 340],
+      "size": [160, 70]
+    },
+    {
+      "id": "mcp",
+      "type": "backend",
+      "label": "HIL MCP Server",
+      "sublabel": "stdio · FastMCP · 4 工具",
+      "pos": [326, 340],
+      "size": [160, 70],
+      "sources": [
+        { "path": "src/harness_intelligence/server.py", "line": 15, "label": "create_server" },
+        { "path": "src/harness_intelligence/server.py", "line": 29, "label": "4 个 mcp.tool" }
+      ]
+    },
+    {
+      "id": "context",
+      "type": "backend",
+      "label": "get_project_context",
+      "sublabel": "retrieval.py · token 预算打包",
+      "pos": [622, 340],
+      "size": [180, 70],
+      "sources": [
+        { "path": "src/harness_intelligence/retrieval.py", "line": 305, "label": "get_project_context" },
+        { "path": "src/harness_intelligence/retrieval.py", "line": 405, "label": "sufficient / fallback" }
+      ]
+    },
+    {
+      "id": "embed",
+      "type": "backend",
+      "label": "可选语义重排",
+      "sublabel": "embeddings.py · 前 40 候选",
+      "tag": "默认关闭",
+      "pos": [938, 340],
+      "size": [180, 70],
+      "sources": [
+        { "path": "src/harness_intelligence/embeddings.py", "line": 174, "label": "resolve_backend" },
+        { "path": "src/harness_intelligence/embeddings.py", "line": 98, "label": "sentence-transformers 后端" }
+      ]
+    },
+    {
+      "id": "index",
+      "type": "database",
+      "label": ".hil/index.json",
+      "sublabel": "index_project · schema 3 · 自愈",
+      "pos": [622, 120],
+      "size": [180, 66],
+      "sources": [
+        { "path": "src/harness_intelligence/indexer.py", "line": 15, "label": "INDEX_VERSION" },
+        { "path": "src/harness_intelligence/indexer.py", "line": 244, "label": "staleness_reason" }
+      ]
+    },
+    {
+      "id": "memory",
+      "type": "backend",
+      "label": "工程记忆 memory.py",
+      "sublabel": "search / record 工程事实",
+      "pos": [622, 580],
+      "size": [180, 66],
+      "sources": [
+        { "path": "src/harness_intelligence/memory.py", "line": 47, "label": "search_memory" },
+        { "path": "src/harness_intelligence/memory.py", "line": 16, "label": "record_memory" }
+      ]
+    },
+    {
+      "id": "memstore",
+      "type": "database",
+      "label": ".ai-memory/",
+      "sublabel": "人工确认的可复用事实",
+      "pos": [622, 800],
+      "size": [180, 62],
+      "sources": [
+        { "path": "src/harness_intelligence/memory.py", "line": 40, "label": "按分类写入项目内" }
+      ]
+    }
+  ],
+  "connections": [
+    { "id": "harness-request", "from": "harness", "to": "mcp", "label": "MCP stdio", "variant": "emphasis", "fromSide": "right", "toSide": "left" },
+    { "id": "mcp-context", "from": "mcp", "to": "context", "label": "get_project_context", "fromSide": "right", "toSide": "left" },
+    { "id": "context-embed", "from": "context", "to": "embed", "label": "HIL_EMBEDDINGS（可选）", "variant": "dashed", "fromSide": "right", "toSide": "left" },
+    { "id": "mcp-index", "from": "mcp", "to": "index", "label": "index_project", "variant": "dashed", "fromSide": "top", "toSide": "left", "via": [[406, 153]] },
+    { "id": "context-index", "from": "context", "to": "index", "label": "load_index", "fromSide": "top", "toSide": "bottom" },
+    { "id": "context-memory", "from": "context", "to": "memory", "label": "search_memory", "fromSide": "bottom", "toSide": "top" },
+    { "id": "memory-store", "from": "memory", "to": "memstore", "label": "读写", "fromSide": "bottom", "toSide": "top" },
+    { "id": "mcp-memory", "from": "mcp", "to": "memory", "label": "record_project_memory", "variant": "dashed", "fromSide": "bottom", "toSide": "left", "via": [[406, 613]] }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "MCP 工具面",
+      "items": [
+        "四个工具：index_project、get_project_context、search_project_memory、record_project_memory",
+        "请求与结构化 Context Package 走同一条 stdio 连接，Harness 按需拉起进程",
+        "有意不含 Shell、文件编辑、会话与子代理工具"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "检索",
+      "items": [
+        "中文按 2/3 字 n-gram 切分；标识符按蛇形/驼峰词部件匹配",
+        "路径按词部件精确匹配（git 不再命中 .github），文件级加成不随窗口体积稀释",
+        "片段级评分：命中密度 ÷ token 成本；每文件一个窗口、上限 60 token，互不重叠",
+        "查询点名的标识符所在窗口优先于命中密度发射（named_symbol，覆盖更多点名标识符者优先）",
+        "模块常量也作为符号提取（MAX_TERMS、DEFAULT_EXCLUDES）；schema 3 起旧索引自动重建",
+        "查询侧中英术语桥（glossary.py）：中文词项扩展为英文，只做可达性、不参与排序（raw 50.8%→70.5%，hinted 零回退）"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Phase 3 门槛",
+      "items": [
+        "首次真实 A/B（OpenClaw + deepseek-v4-flash，50 题 × 2 臂、raw 中文输入）：token −43.1%、成功率 100%→100%、重试 0→0、跨 Harness 复用 2/2 达标；但召回仅 50.8%（Phase 5 §7.1 术语桥后同一批 70.5%），仍 < 90%，Phase 3 未通过",
+        "中位输入 token 降低 ≥ 20%",
+        "Context Recall ≥ 90%；成功率下降 ≤ 2 个百分点",
+        "平均重试次数不增加；跨 Harness 记忆复用成功",
+        "随机分组记录 seed 与两臂顺序；工具结果体积与 prompt-cache 只记录不设门槛"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Phase 4 证据门",
+      "items": [
+        "词法 Recall：hinted 98.5% 已达标，raw 70.5%（术语桥后）仍未达标 → 可选 Embedding / Reranker（FIRED）",
+        "≥ 100 条可比结果 → Model Router（当前 0 条，未触发）",
+        "修改质量不可比 → Unified Validator（未举证）",
+        "P95 ≥ 1s → 向量存储（当前约 60–80 ms，未触发）"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "验证与证据层",
+      "items": [
+        "benchmarks/measure.py 逐题机械测量；verify.py 跑回归门与不变量；evidence.py 判定 Phase 4 触发条件",
+        ".hil/results/ 与 baseline.json 是派生评测产物，由 .hilignore 排除出索引",
+        "记忆片 ≤ budget/4；每个片段行号与磁盘一致；.ai-memory 不作为源码重建索引"
+      ]
+    }
+  ]
+}

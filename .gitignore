@@ -6,6 +6,9 @@ _tmp/
 # Generated per-task A/B runbook (measure.py --runbook). Derived from tasks.jsonl,
 # so committing it would just create a second copy that drifts from the corpus.
 benchmarks/results/ab_runbook.md
+# Archify working folder; the delivered diagram is committed under
+# docs/architecture/ and both paths are excluded from the code index.
+.archify/
 __pycache__/
 *.py[cod]
 .pytest_cache/

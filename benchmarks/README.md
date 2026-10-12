@@ -7,8 +7,9 @@
 | `tasks.jsonl` | 26 个带标注的项目任务（单文件、跨模块、故障定位、架构问答） |
 | `hints.jsonl` | 同一批任务的标识符化表达，用于把"表达质量"与"检索质量"分开测量 |
 | `measure.py` | HIL 侧机械测量 + A/B 结果校验（仅用标准库） |
-| `verify.py` | 跨阶段验证与回归门：8 类断言，输出 PASS / FAIL / SKIP，退出码 1 = 有断言失败 |
-| `results/` | 入库证据：`ab.jsonl`（人工填写）与 `baseline.json`（回归基线） |
+| `evidence.py` | Phase 4 证据门：报告四条「按证据扩展」触发条件是否成立（不实现任何组件） |
+| `verify.py` | 跨阶段验证与回归门：任务集、发现路径、包不变量、回归门、索引覆盖、跨 Harness 复用、节省门自检，输出 PASS / FAIL / SKIP，退出码 1 = 有断言失败 |
+| `results/` | 入库证据：`ab.jsonl`（人工填写）、`baseline.json`（回归基线）、可选的 `reuse.json`（跨 Harness 复用回执）与 `quality.json`（人工判定修改集合） |
 
 每次运行的报告写入 `.hil/results/`（`.hil/` 已被两条文件发现路径排除），因此跑评测不会改变下一次评测读到的索引。
 
@@ -53,9 +54,11 @@ python benchmarks/measure.py --budget 1500 --label hil
 | `--label NAME` | 结果文件标签，例如 `openclaw`、`cline` |
 | `--variant raw\|hinted` | 任务表达：原始表达 vs 标识符化表达，默认 `raw` |
 | `--out PATH` | 报告输出路径，默认 `.hil/results/`（该目录不在索引范围内） |
-| `--worksheet PATH` | 生成空白 A/B 表并退出 |
-| `--runbook PATH` | 生成逐题 A/B 操作卡（含 native/hinted 提示与评分清单）并退出 |
-| `--compare PATH` | 校验已填写的 A/B 表并按 roadmap §5 门槛判定 |
+| `--worksheet PATH` | 生成空白 A/B 表并退出（每行写入随机 `seed` 与两臂执行 `order`） |
+| `--seed N` | `--worksheet` 的随机化种子，默认 0，可复现同一分组 |
+| `--embedding off\|auto\|on\|hash` | 可选语义重排臂，默认跟随 `HIL_EMBEDDINGS`（未设置即 `off`）；不可用时回退本地词法 |
+| `--compare PATH` | 校验已填写的 A/B 表并按 roadmap §5 五道门槛判定 |
+| `--reuse-file PATH` | 跨 Harness 复用回执，提供后纳入复用门判定 |
 
 ## 4. 任务表达对照（调用策略）
 
@@ -66,16 +69,16 @@ python benchmarks/measure.py --budget 1500 --label baseline --variant raw
 python benchmarks/measure.py --budget 1500 --label baseline --variant hinted
 ```
 
-2026-10-08 实测（26 题、1500 token 预算、索引 schema 2、29 个文件 / 223 个符号；中位包体积取整到 10 token——它会随索引内容在十几 token 内抖动，取整可避免每次文档编辑都要改表）。表中是**完成 Phase 2 两处检索修正与跨语言词面桥接后**的数值；修正前的数值（`raw` 26.9% → 47.8%、`hinted` 65.7% → 69.9%）见 `docs/roadmap.md` §2/§4：
+2026-10-11 实测（**50 题**、1500 token 预算、索引 schema 3、34 个文件；中位包体积取整到 10 token——它会随索引内容在十几 token 内抖动，取整可避免每次文档编辑都要改表）。这是**完成三轮检索修正后**的当前基数：
 
-| 变体 | 平均 Recall | 达标（≥90%） | 中位包体积 | 未召回符号 | p50 / p95 延迟（预热后，指示性） |
+| 变体 | 平均 Recall | 达标（≥90%） | 中位包体积 | 未召回文件 | p50 / p95 延迟（预热后，指示性） |
 |---|---|---|---|---|---|
-| `raw`（原始中文表达） | 68.9% | 11 / 26 | ≈1470 | 5 | 126 / 161 ms |
-| `hinted`（中文 + 标识符） | 68.9% | 14 / 26 | ≈1470 | 3 | 140 / 177 ms |
+| `raw`（原始中文表达） | 70.5% | 20 / 50 | ≈1480 | 3 | 49 / 74 ms |
+| `hinted`（中文 + 标识符） | 98.5% | 48 / 50 | ≈1440 | 1 | 58 / 83 ms |
 
-结论与后续动作见 `docs/roadmap.md` 的 Phase 2 修正记录与缺口归因。跨语言桥接把 `raw` 从 47.8% 抬到 68.9%（+21.1pp），`hinted` 微降 1.0pp（桥接词在有标识符时是冗余噪声，仍在回归门容差内）；两种表达的差异因此基本消失，说明"必须会写英文标识符"这一门槛主要是词面缺口，而不是检索质量本身。相对 Phase 2 的 `p95 < 1000 ms` 退出标准仍有余量。
+`hinted` 已达到 90% 退出标准，且**没有任何必召回文件被漏掉**；`raw` 的剩余缺口是"中文提问 vs 英文实现"的跨语言匹配，词法检索解决不了。两轮修正的完整记录（第一轮 `raw` 47.8% / `hinted` 69.9%）见 `docs/roadmap.md` §4。第二轮把窗口收窄、每个文件只保留一个窗口，让同一份预算覆盖更多文件，因此中位包体积与延迟反而同时下降。
 
-评测产物与索引的关系（已隔离实测）：派生 JSON 一旦进入索引，就会与源码片段争夺同一份 token 预算。只切换 `benchmarks/results/baseline.json` 是否被索引、其余不变：
+评测产物与索引的关系（2026-10-05 第一轮修正后的隔离实测）：派生 JSON 一旦进入索引，就会与源码片段争夺同一份 token 预算。只切换 `benchmarks/results/baseline.json` 是否被索引、其余不变：
 
 | 状态 | 索引文件数 | `hinted` 平均 Recall | 达标 | 中位包体积 |
 |---|---|---|---|---|
@@ -88,37 +91,57 @@ python benchmarks/measure.py --budget 1500 --label baseline --variant hinted
 
 ## 5. A/B 对照实验
 
-A/B 表的 token 数必须从 Harness 会话用量中读取，`measure.py` 无法替你生成。先生成空白表，再生成一张**逐题操作卡**（由 `tasks.jsonl` 生成，因此不会与语料漂移）：
+A/B 表的 token 数必须从 Harness 会话用量中读取，`measure.py` 无法替你生成。先生成空白表：
 
 ```powershell
-python benchmarks/measure.py --worksheet benchmarks/results/ab.jsonl --harness openclaw --harness cline
-python benchmarks/measure.py --runbook   benchmarks/results/ab_runbook.md --harness openclaw --harness cline
+python benchmarks/measure.py --worksheet benchmarks/results/ab.jsonl `
+  --harness openclaw --harness cline --seed 20261011
 ```
 
-`ab_runbook.md` 是派生文件（不 commit），每题一张卡：native 提示、可选 hinted 提示、HIL 调用、成功判据，以及仅供评分的"必须找到的文件/符号"清单——清单即答案，**不要粘进 native 臂**。照卡填表即可。
+`--worksheet` 会为每行记录随机化结果：`seed` 是本次种子，`order` 是该题两个臂的执行顺序（`native` 与 `hil` 随机先后）。行序也被打乱，使某个 Harness 的学习或缓存效应不会固定落在后执行的臂上；用同一 `--seed` 重跑可复现同一分组。
 
 逐行填写后形如（**下面是格式示例，不是真实数据**）：
 
 ```json
-{"id": "HIL-005", "harness": "openclaw", "prompt": "四个 MCP 工具在哪个函数里注册？",
- "native": {"input_tokens": 0, "success": false, "evidence": "<取数位置与日期>"},
- "hil":    {"input_tokens": 0, "success": false, "evidence": "<取数位置与日期>"}}
+{"id": "HIL-005", "harness": "openclaw", "seed": 20261011, "order": ["hil", "native"],
+ "prompt": "四个 MCP 工具在哪个函数里注册？",
+ "native": {"input_tokens": 0, "success": false, "retries": 0,
+            "tool_result_tokens": 0, "cache_read_tokens": 0, "model": "<模型名>",
+            "evidence": "<取数位置与日期>"},
+ "hil":    {"input_tokens": 0, "success": false, "retries": 0,
+            "tool_result_tokens": 0, "cache_read_tokens": 0, "model": "<模型名>",
+            "evidence": "<取数位置与日期>"}}
 ```
 
 字段要求：
 
-- `input_tokens`：该次任务会话的模型输入 token 总量（正整数）；
-- `success`：按 `success_criteria` 判定任务是否真正完成（布尔）；
-- `evidence`：取数位置与日期，缺失即视为未填写，脚本拒绝统计。
+- `input_tokens`：该次任务会话的模型输入 token 总量（必填正整数）；
+- `success`：按 `success_criteria` 判定任务是否真正完成（必填布尔）；
+- `evidence`：取数位置与日期，缺失即视为未填写，脚本拒绝统计（必填）；
+- `retries`：该次任务的修复轮次（可选，缺省 0，纳入门槛）；
+- `tool_result_tokens`：工具结果累计体积（可选，**只记录不设门槛**）；
+- `cache_read_tokens`：prompt cache 命中读取量（可选，**只记录不设门槛**），用于判断 token 下降是否其实来自缓存而非检索；
+- `model`：Harness 使用的模型标识（可选），用于分辨模型差异。
+
+跨 Harness 复用回执（可选）形如：
+
+```json
+{"generated_at": "<UTC>", "success": true,
+ "pairs": [{"writer": "cline", "reader": "openclaw", "query": "<查询>",
+            "found": true, "evidence": "<取数位置与日期>"}]}
+```
+
+`success` 为布尔、`pairs` 非空且每对都带 `found` 与 `evidence`，否则脚本以退出码 3 拒绝统计。
 
 判定：
 
 ```powershell
 python benchmarks/measure.py --compare benchmarks/results/ab.jsonl `
-  --recall-file benchmarks/results/hil_openclaw_<UTC>.json
+  --recall-file benchmarks/results/hil_openclaw_<UTC>.json `
+  --reuse-file benchmarks/results/reuse.json
 ```
 
-门槛来自 `docs/roadmap.md` §5：中位输入 token 降低 ≥ 20%、Context Recall ≥ 90%、成功率下降 ≤ 2 个百分点。任一不达标时退出码为 1。
+门槛来自 `docs/roadmap.md` §5：中位输入 token 降低 ≥ 20%、Context Recall ≥ 90%、成功率下降 ≤ 2 个百分点、**平均重试次数不增加**，提供回执时再加**跨 Harness 复用成功**。任一不达标时退出码为 1；数据不足或不可追溯时为退出码 3。未提供 `--reuse-file` 时复用门只报告不拦截，以兼容 Phase 3 之前已填写的旧表。
 
 ## 6. 验证与回归门
 
@@ -142,15 +165,30 @@ python benchmarks/verify.py --write-baseline             # 有意改变检索后
 | 回归门 | 相对 `results/baseline.json`：平均召回 ≥ 基线 − 8pp、达标题数 ≥ 基线 − 2、重复片段不增加、中位包体积 ≤ 基线 × 1.05 + 50 token |
 | 延迟 | 预热后报告 p50 / p95，**不作门**（同机冷启动实测摆动 2.6 倍，单次数字是假信号） |
 | 索引覆盖 | 索引文件集 == 可发现文本文件集（含 `.hilignore` 规则），且不含 `hil_*.json` 每次运行报告与 `results/baseline.json` |
-| 节省门自检 | 用合成数据验证 `--compare` 的三种退出码：3 数据不可用、1 未达门槛、0 全部通过 |
+| 跨 Harness 复用 | 在临时项目里写入一条署名为 `cline` 的事实，再经记忆检索与 `get_project_context` 读回；断言事实存放在目标项目而非 Harness 私有存储，且 `.ai-memory` 不被当作源码重建索引 |
+| 节省门自检 | 用合成数据验证 `--compare` 的四种退出码场景：3 数据不可用、1 未达门槛（token / 重试 / 复用各自一个用例）、0 全部通过 |
 
-容差说明：26 题中单题翻转 ≈ 3.8pp，因此回归门允许约两题的合法漂移。这种漂移不只来自检索改动：**被引用的文档本身也在索引里**，所以修改这些数字所在的文档就会移动数值——实测一次文档更新让 `raw` 掉 3.9pp（≈ 1 题）、`hinted` 涨 1.9pp（≈ 1 题）。8pp 的容差刚好覆盖这类合法漂移，而真正的退化（例如中文词项切分失效）会远超这个幅度。基线只能通过 `--write-baseline` 更新，并应与触发数值变动的提交一起 review。
+容差说明：50 题中单题翻转 = 2.0pp，因此回归门允许约四题的合法漂移（8pp）。这种漂移不只来自检索改动：**被引用的文档本身也在索引里**，所以修改这些数字所在的文档就会移动数值。8pp 的容差刚好覆盖这类合法漂移，而真正的退化（例如中文词项切分失效）会远超这个幅度。基线只能通过 `--write-baseline` 更新，并应与触发数值变动的提交一起 review。
 
 ## 7. 当前状态
 
-- 任务集：已完成（26 条，含成功判据与来源标注）；
-- HIL 侧测量：可直接复现（29 个文件 / 223 个符号、`raw` 与 `hinted` 两次运行）；
-- 检索修正：Phase 2 的两处词法层缺陷已修正（`raw` 26.9% → 47.8%、`hinted` 65.7% → 69.9%），随后完成跨语言词面桥接（`raw` → 68.9%、`hinted` → 68.9%），**仍未达到 90% 退出标准**，缺口归因见 `docs/roadmap.md` §4；
-- 调用策略对照：已完成，桥接前标识符化表达把平均召回从 47.8% 提升到 69.9%，桥接后两种表达接近持平（均为 68.9%）；
-- 回归门：已建立（`verify.py` + `results/baseline.json`），并接入 CI；
-- 原生执行基线：**尚未填写**，因此本仓库不得宣称任何 token 节省比例。
+- 任务集：已完成（50 条，含成功判据与来源标注；Phase 0 时 26 条，后扩建以便让 2pp 的成功率预算可分辨）；
+- HIL 侧测量：可直接复现（本次运行 34 个文件、`raw` 与 `hinted` 两次运行，另可用 `--embedding` 增加语义重排臂）；
+- 检索修正：四轮。前三轮见 `docs/roadmap.md` §4；**第四轮（Phase 5 §7.1）为查询侧中英术语桥**（`glossary.py`，只做可达性、不参与排序）。50 题上 `raw` 50.8% → **70.5%**、`hinted` 保持 **98.5%**（零回退）。`hinted` 已达 90% 退出标准；`raw` 仍低于门槛，剩余缺口为跨语言，归因见 `docs/roadmap.md` §4/§7；
+- 调用策略对照：已完成，标识符化表达在当前检索下把平均召回从 70.5% 提升到 98.5%（达标 20 → 48 / 50）；
+- **首次真实跨 Harness A/B（2026-10-11，OpenClaw + deepseek-v4-flash，50 题 × 2 臂，输入为 `raw` 纯中文提问，双臂有效性经 transcript 核验）**：中位输入 token 降低 **43.1%**、成功率 100% → 100%、平均重试 0→0、跨 Harness 复用 2/2 达标；但 **Context Recall 50.8% < 90%，门槛失败**，`--compare` 退出码 1。注意该 token 下降不能归因于检索质量（模型自带探索也能答对），见 `docs/roadmap.md` §5。数据与回执见 `results/ab.jsonl` 与 `results/reuse.json`；
+- Phase 3 就绪：判定机制已就绪（随机分组 + seed、五道门槛、工具结果与 prompt-cache 记录、跨 Harness 复用回执），见 `docs/roadmap.md` §5「Phase 3 就绪状态」；`hinted` 召回已达标，HIL 臂具备采集条件；
+- Phase 4 证据门：已建立（`evidence.py`），可选语义重排已实现并默认为关，见 §8；
+- 回归门：已建立（`verify.py` + `results/baseline.json`），并接入 CI；本轮为**有意的检索改动**，基线已用 `--write-baseline` 重录；
+- 原生执行基线：**尚未填写**（`ab.jsonl` 的 52 行两臂仍为 `null`），因此本仓库不得宣称任何 token 节省比例。
+
+> 基线说明：本轮是**有意的检索改动**，因此基线用 `--write-baseline` 重录并随提交一起 review——这是唯一允许改写基线的路径。此前记录的"改文档会移动召回数值"现象仍然成立：被引用的源码与文档本身都在索引里，所以继续编辑本文档也会让数值在 8pp 容差内小幅漂移。
+
+## 8. Phase 4 证据门
+
+```powershell
+$env:PYTHONPATH = "src"
+python benchmarks/evidence.py
+```
+
+读取 `results/baseline.json`（召回）、`results/ab.jsonl`（可比结果数）、可选的 `results/quality.json`（人工判定修改集合）与 `.hil/results/` 最新报告的 p95 延迟，逐条报告 `docs/roadmap.md` §6 的四个触发条件是 `FIRED`（证据已成立）、`NOT FIRED`（证据表明暂不需要）还是 `NOT EVIDENCED`（尚无证据）。退出码恒为 0：这是决策报告而不是构建门，`FIRED` 只表示"roadmap 要求的证据出现了"，不代表必须开工，也不代表任何收益已被测量。

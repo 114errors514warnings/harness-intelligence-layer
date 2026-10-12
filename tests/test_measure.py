@@ -262,6 +262,9 @@ def _row(task_id: str, recall: float | None, **overrides) -> dict:
         "returned_paths": [],
         "index_refreshed": False,
         "stale_reason": None,
+        "retrieval_mode": "lexical",
+        "sufficient": True,
+        "fallback": None,
     }
     row.update(overrides)
     return row
@@ -401,11 +404,13 @@ class CompareGateTests(unittest.TestCase):
         self.assertEqual(code, 0)
 
     def test_the_reported_reduction_is_a_median(self) -> None:
-        # 11 tasks at +30% and 9 tasks at -50% average out negative while the
-        # median still clears the bar, so this pins the statistic that decides.
+        # A majority at +30% next to a large minority at -50% still averages out
+        # negative while the median clears the bar, so this pins the statistic
+        # that decides rather than the mean.
         ids = sorted(self.ids)
-        records = [_record(task_id, 1000, 700) for task_id in ids[:11]]
-        records += [_record(task_id, 1000, 1500) for task_id in ids[11:]]
+        positives = len(ids) // 2 + 1
+        records = [_record(task_id, 1000, 700) for task_id in ids[:positives]]
+        records += [_record(task_id, 1000, 1500) for task_id in ids[positives:]]
         code, output = self._compare(records, 95.0)
         self.assertEqual(code, 0)
         self.assertIn("median input token reduction: 30.0%", output)
@@ -416,7 +421,170 @@ class CompareGateTests(unittest.TestCase):
         records[0]["hil"] = {**records[0]["hil"], "input_tokens": 1400}
         code, output = self._compare(records, 95.0)
         self.assertEqual(code, 0)
-        self.assertIn("A/B records: 20 task runs", output)
+        self.assertIn(f"A/B records: {measure.MIN_AB_TASKS} task runs", output)
+
+
+class WorksheetRandomisationTests(unittest.TestCase):
+    """Roadmap §5 asks for randomised allocation, and randomisation is only
+    reproducible if its seed is recorded, so both are pinned here."""
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.tasks = [_task(f"T-{index:02d}") for index in range(1, 6)]
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def _rows(self, path: Path) -> list[dict]:
+        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+
+    def test_every_task_and_harness_gets_one_row(self) -> None:
+        path = self.root / "ab.jsonl"
+        measure.write_worksheet(self.tasks, path, ["openclaw", "cline"], seed=7)
+        rows = self._rows(path)
+        self.assertEqual(len(rows), len(self.tasks) * 2)
+        self.assertEqual(
+            {(row["id"], row["harness"]) for row in rows},
+            {(task["id"], harness) for task in self.tasks for harness in ("openclaw", "cline")},
+        )
+
+    def test_the_order_is_a_permutation_of_the_two_arms(self) -> None:
+        path = self.root / "ab.jsonl"
+        measure.write_worksheet(self.tasks, path, ["openclaw"], seed=1)
+        for row in self._rows(path):
+            self.assertEqual(sorted(row["order"]), ["hil", "native"])
+            self.assertEqual(row["seed"], 1)
+
+    def test_the_seed_is_reproducible(self) -> None:
+        first, second = self.root / "a.jsonl", self.root / "b.jsonl"
+        measure.write_worksheet(self.tasks, first, ["openclaw", "cline"], seed=42)
+        measure.write_worksheet(self.tasks, second, ["openclaw", "cline"], seed=42)
+        self.assertEqual(first.read_text(encoding="utf-8"), second.read_text(encoding="utf-8"))
+
+    def test_a_different_seed_can_choose_a_different_order(self) -> None:
+        orders = set()
+        for seed in range(12):
+            path = self.root / f"seed-{seed}.jsonl"
+            measure.write_worksheet(self.tasks, path, ["openclaw"], seed=seed)
+            orders.update(tuple(row["order"]) for row in self._rows(path))
+        self.assertEqual(orders, {("native", "hil"), ("hil", "native")})
+
+
+class ArmFieldValidationTests(unittest.TestCase):
+    def test_optional_phase_3_fields_are_accepted(self) -> None:
+        arm = {
+            "input_tokens": 1000,
+            "success": True,
+            "evidence": "session log 2026-10-11",
+            "retries": 1,
+            "tool_result_tokens": 400,
+            "cache_read_tokens": 200,
+            "model": "gpt-5",
+        }
+        metrics = measure._arm_metrics(arm, "hil", "T-01")
+        self.assertEqual(metrics["retries"], 1)
+        self.assertEqual(metrics["tool_tokens"], 400)
+        self.assertEqual(metrics["cache_tokens"], 200)
+
+    def test_retries_default_to_zero_when_absent(self) -> None:
+        metrics = measure._arm_metrics(
+            {"input_tokens": 10, "success": True, "evidence": "e"}, "native", "T-01"
+        )
+        self.assertEqual(metrics["retries"], 0)
+        self.assertIsNone(metrics["tool_tokens"])
+
+    def test_negative_retries_are_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            measure._arm_metrics(
+                {"input_tokens": 10, "success": True, "evidence": "e", "retries": -1},
+                "native",
+                "T-01",
+            )
+
+    def test_blank_model_is_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            measure._arm_metrics(
+                {"input_tokens": 10, "success": True, "evidence": "e", "model": "  "},
+                "native",
+                "T-01",
+            )
+
+
+class Phase3GateTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.ids = {f"T-{index:02d}" for index in range(1, measure.MIN_AB_TASKS + 1)}
+
+    def _records(self, **arm_overrides) -> list[dict]:
+        records = []
+        for task_id in sorted(self.ids):
+            record = _record(task_id, 1000, 700)
+            record["native"] = {**record["native"], **arm_overrides.get("native", {})}
+            record["hil"] = {**record["hil"], **arm_overrides.get("hil", {})}
+            records.append(record)
+        return records
+
+    def _compare(self, records, recall_pct, reuse=None) -> tuple[int, str]:
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            code = measure.compare(records, self.ids, recall_pct, reuse)
+        return code, stdout.getvalue()
+
+    def test_more_retries_in_the_hil_arm_fail_the_gate(self) -> None:
+        records = self._records(native={"retries": 0}, hil={"retries": 2})
+        code, output = self._compare(records, 95.0)
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL] mean retries not increased", output)
+
+    def test_retries_that_do_not_increase_pass(self) -> None:
+        records = self._records(native={"retries": 2}, hil={"retries": 1})
+        code, output = self._compare(records, 95.0)
+        self.assertEqual(code, 0)
+        self.assertIn("PASS] mean retries not increased", output)
+
+    def test_a_missing_reuse_artifact_is_reported_but_not_gated(self) -> None:
+        # Backward compatibility: a worksheet measured before Phase 3's reuse
+        # check existed must still evaluate on the gates it did supply.
+        code, output = self._compare(self._records(), 95.0)
+        self.assertEqual(code, 0)
+        self.assertIn("cross-harness memory reuse: not supplied", output)
+
+    def test_a_failed_reuse_artifact_fails_the_gate(self) -> None:
+        reuse = {"success": False, "pairs": [{"found": False, "evidence": "run 2026-10-11"}]}
+        code, output = self._compare(self._records(), 95.0, reuse)
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL] cross-harness memory reuse", output)
+
+    def test_a_successful_reuse_artifact_passes_the_gate(self) -> None:
+        reuse = {"success": True, "pairs": [{"found": True, "evidence": "run 2026-10-11"}]}
+        code, output = self._compare(self._records(), 95.0, reuse)
+        self.assertEqual(code, 0)
+        self.assertIn("1/1 facts written by one harness were retrieved", output)
+
+    def test_tool_result_and_cache_reads_are_reported(self) -> None:
+        records = self._records(
+            native={"tool_result_tokens": 900, "cache_read_tokens": 100},
+            hil={"tool_result_tokens": 500, "cache_read_tokens": 50},
+        )
+        _, output = self._compare(records, 95.0)
+        self.assertIn("median tool-result tokens: native 900 -> hil 500", output)
+        self.assertIn("median prompt-cache read tokens: native 100 -> hil 50", output)
+
+    def test_reuse_artifact_requires_traceable_pairs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "reuse.json"
+            path.write_text(
+                json.dumps({"success": True, "pairs": [{"found": True}]}), encoding="utf-8"
+            )
+            with self.assertRaises(ValueError):
+                measure.load_reuse(path)
+
+    def test_reuse_artifact_needs_at_least_one_pair(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "reuse.json"
+            path.write_text(json.dumps({"success": True, "pairs": []}), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                measure.load_reuse(path)
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ from harness_intelligence.indexer import index_project
 from harness_intelligence.retrieval import (
     MAX_WINDOWS,
     MAX_WINDOW_TOKENS,
+    PATH_HIT_WEIGHT,
     _entry_candidates,
     _windows,
     get_project_context,
@@ -89,27 +90,48 @@ class FragmentScoringTests(unittest.TestCase):
     def test_a_path_hit_is_a_candidate_without_any_content_hit(self) -> None:
         found = candidates("nothing matches here\n", ["indexer"], path="src/indexer.py")
         self.assertEqual(len(found), 1)
-        self.assertEqual(found[0].score, 8.0)
+        self.assertEqual(found[0].score, PATH_HIT_WEIGHT)
         self.assertIn("path:indexer", found[0].reasons)
+
+    def test_a_generic_short_term_does_not_match_a_path_segment(self) -> None:
+        # "git" used to hit ".github/" and "ai" used to hit "openai.yaml": a flat
+        # path bonus on files that have nothing to do with the question, which
+        # crowded the file that actually answers it out of the budget.
+        self.assertEqual(candidates("unrelated body\n", ["git"], path=".github/workflows/ci.yml"), [])
+        self.assertEqual(candidates("unrelated body\n", ["ai"], path="skills/agents/openai.yaml"), [])
+
+    def test_a_long_enough_term_still_matches_a_path_segment_by_prefix(self) -> None:
+        # The length gate must not cost a file the caller actually named:
+        # "token" still reaches tokens.py, "index" still reaches indexer.py.
+        for term, path in (("token", "src/tokens.py"), ("index", "src/indexer.py")):
+            found = candidates("unrelated body\n", [term], path=path)
+            self.assertEqual(len(found), 1, f"{term} -> {path}")
+            self.assertEqual(found[0].score, PATH_HIT_WEIGHT)
 
     def test_a_file_without_any_hit_yields_nothing(self) -> None:
         self.assertEqual(candidates("nothing matches here\n", ["indexer"]), [])
 
-    def test_a_bridged_term_does_not_buy_a_path_bonus(self) -> None:
-        # 索引 -> index is a guess about content, not a name the caller typed, so
-        # it must not path-match tests/test_index_*.py. Measured: letting it did
-        # sent documentation tasks into the index tests.
-        found = _entry_candidates(
-            "tests/test_index_freshness.py",
-            [],
-            "nothing matches here\n",
-            ["index"],
-            content_pattern(["index"]),
-            {"index"},
+    def test_a_file_known_only_by_a_symbol_yields_its_definition_window(self) -> None:
+        symbols = [{"name": "staleness_reason", "kind": "function", "line": 3}]
+        text = "one\ntwo\ndef staleness_reason(root, payload):\n    return None\n"
+        found = candidates(text, ["staleness_reason"], symbols)
+        self.assertTrue(found)
+        self.assertTrue(
+            any(fragment.start_line <= 3 <= fragment.end_line for fragment in found)
         )
-        self.assertEqual(found, [])
-        literal = candidates("nothing matches here\n", ["index"], path="tests/test_index_freshness.py")
-        self.assertEqual(literal[0].score, 8.0)
+
+    def test_the_window_holding_a_named_symbol_beats_a_denser_window(self) -> None:
+        # The Phase 3 pilot lost 5 tasks because the one emitted window was the
+        # densest one, not the one holding the identifier the query named: the
+        # model got the file but not the line that answers the question.
+        lines = [f"line {n} 索引 陈旧 检测 说明文字 索引 陈旧 检测" for n in range(1, 40)]
+        lines[29] = "DEFAULT_EXCLUDES = {'.git', '.hil'}"
+        symbols = [{"name": "DEFAULT_EXCLUDES", "kind": "constant", "line": 30}]
+        found = candidates("\n".join(lines), ["索引", "default_excludes"], symbols)
+        self.assertTrue(found)
+        self.assertTrue(
+            any(fragment.start_line <= 30 <= fragment.end_line for fragment in found)
+        )
 
     def test_terms_are_matched_case_insensitively(self) -> None:
         found = candidates("Load_Index()\n", ["load_index"])
