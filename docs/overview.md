@@ -90,8 +90,8 @@ MCP 接口有意保持精简，不提供通用 Shell、文件写入、会话或�
 - OpenClaw 实际探测到 4 个 HIL 工具且无诊断错误，MCP 工具面仍严格保持四个；
 - 154 项 Python 单元测试通过，其中包含 MCP 四工具注册、stdio 端到端往返、跨 Harness 记忆复用、路径匹配精度、模块常量符号与可选语义后端的回退路径；
 - GitHub Actions 在 Python 3.11 与 3.13 上运行单元测试、Phase 0 任务集与回归门；
-- Phase 0 任务集（Phase 0 时 26 条，后扩建到 **50 条**）与统计脚本已建立；Phase 2 已完成三轮检索修正，Phase 5 §7.1 又加了查询侧中英术语桥。50 题上 `raw` **70.5%**（术语桥前 50.8%）、`hinted` **98.5%**：`hinted` 已达到 90% 退出标准，`raw` 的剩余缺口是跨语言匹配（见 `docs/roadmap.md` §4/§7）；
-- **首次真实跨 Harness A/B 已通过全部门槛**（2026-10-11，OpenClaw + `deepseek-v4-flash`，50 题 × 2 臂，双臂有效性经 transcript 核验）：中位输入 token 降低 **43.1%**、召回 98.5%、成功率 100% → 100%、平均重试 0→0、跨 Harness 复用 2/2，`--compare` 退出码 0。详见 `docs/roadmap.md` §5；
+- Phase 0 任务集（Phase 0 时 26 条，后扩建到 **50 条**）与统计脚本已建立；Phase 2 已完成三轮检索修正；Phase 5 加了 §7.1 中英术语桥、§7.2a 窗口修正与 Git recency。50 题上（受控记忆库）`raw` **73.3%**（术语桥前 50.8%）、`hinted` **98.0%**：`hinted` 已达到 90% 退出标准，`raw` 的剩余缺口是跨语言匹配（见 `docs/roadmap.md` §4/§7）；
+- **首次真实跨 Harness A/B（2026-10-11，OpenClaw + `deepseek-v4-flash`，50 题 × 2 臂，双臂有效性经 transcript 核验）：四道门槛通过、召回门槛失败**。中位输入 token 降低 **43.1%**、成功率 100% → 100%、平均重试 0→0、跨 Harness 复用 2/2 均达标；但以运行口径（`raw` 纯中文提问）计 **Context Recall 50.8% < 90%，FAIL**，`--compare` 退出码 1，**Phase 3 未通过**。token 下降不能归因于检索质量。详见 `docs/roadmap.md` §5；
 - Phase 3 判定机制已就绪（随机分组、五道门槛、跨 Harness 复用回执），Phase 4 证据门（`benchmarks/evidence.py`）已建立并报告"词法 Recall 不达标"这一触发条件成立；可选语义重排已实现且默认关闭，尚无召回收益声明。详见 `docs/roadmap.md` §5/§6。
 
 ## 7. 重要边界

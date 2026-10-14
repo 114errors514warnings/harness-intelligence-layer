@@ -5,6 +5,7 @@ from pathlib import Path
 
 from .embeddings import cosine, resolve_backend
 from .glossary import expand_terms
+from .history import recent_paths
 from .indexer import load_index, read_text
 from .memory import search_memory
 from .terms import content_pattern, extract_terms, identifier_parts
@@ -46,6 +47,13 @@ SYMBOL_WORD_WEIGHT = 0.5
 CONTENT_HIT_WEIGHT = 1.5
 MAX_BONUS_HITS = 3
 
+#: Weight of "this file was touched by a recent commit" (roadmap §4 Phase 2). A weak
+#: hint only - recency is not relevance, and the file that answers a question may be
+#: old. It is a file-level bonus, so it is divided by the window's token cost like
+#: every other one. The benchmark, not a belief, decides the value; a non-git tree
+#: simply earns nothing.
+RECENCY_WEIGHT = 1.0
+
 #: Weight of a line matched only through the zh->en glossary (Phase 5 §7.1)
 #: relative to a literal hit. Measured on the 50-task corpus: any positive value
 #: cost `hinted` recall (98.5% -> 98.0% at 0.1-0.3, 97.5% at 0.4) because a
@@ -54,6 +62,27 @@ MAX_BONUS_HITS = 3
 #: device - it decides whether a file is reachable, never how far it outranks a
 #: literal hit - which keeps the recommended calling style exactly unchanged.
 EXPANSION_HIT_WEIGHT = 0.0
+
+#: Weight of a glossary-expanded line when *choosing which window to emit*.
+#:
+#: ``EXPANSION_HIT_WEIGHT`` governs the candidate score (cross-file ordering) and
+#: stays 0.0 so a dictionary guess never outranks an identifier the caller wrote.
+#: But the very same value was also used to pick the window inside a file, and a
+#: Chinese-only question has no literal hits in an English code file: every window
+#: then scored 0 and the sort fell through to its tie-break, emitting a blank or
+#: unrelated line instead of the definition the expansion pointed at. Measured on
+#: the 50-task corpus, raw failures were 27/31 missing *symbols* (file reached,
+#: window wrong). Window selection therefore gets its own positive weight; the
+#: candidate score still ignores expansions, so `hinted` ordering is untouched.
+EXPANSION_WINDOW_WEIGHT = 1.0
+
+#: Weight of a matched symbol's definition line when choosing the window. A symbol
+#: the query matched by name (word part included) is evidence in its own right, so
+#: its line competes with literal content hits for the emitted window. This is
+#: what lets a Chinese-only question emit ``def search_memory`` instead of a
+#: denser prose window that never answers the question. The candidate *score* is
+#: unaffected, so cross-file ordering - and therefore `hinted` - does not move.
+SYMBOL_WINDOW_WEIGHT = 1.0
 
 #: A path term shorter than this is too generic to match a path segment by
 #: prefix: ``git`` would otherwise hit ``.github/`` and ``ai`` would hit
@@ -112,6 +141,11 @@ def query_terms(task: str) -> list[str]:
     """
     primary, expansions = split_terms(task)
     return primary + expansions
+
+
+def _has_ascii(term: str) -> bool:
+    """True when a term carries an ASCII letter (i.e. names something concrete)."""
+    return any(char.isascii() and char.isalpha() for char in term)
 
 
 #: A fragment is a focused slice of a file, not a chapter. Windows stop growing at
@@ -201,6 +235,7 @@ def _entry_candidates(
     terms: list[str],
     content_re,
     expansion_re=None,
+    recent: frozenset[str] = frozenset(),
 ) -> list[Candidate]:
     """Score the fragments of one file, by what each fragment itself contains.
 
@@ -253,7 +288,13 @@ def _entry_candidates(
         + min(len(exact_hits), MAX_BONUS_HITS) * SYMBOL_EXACT_WEIGHT
         + min(len(word_hits), MAX_BONUS_HITS) * SYMBOL_WORD_WEIGHT
     )
+    # Git recency (roadmap §4): a weak file-level hint, empty on a non-git tree.
+    is_recent = bool(recent) and path in recent
+    if is_recent:
+        bonuses += RECENCY_WEIGHT
     reasons = []
+    if is_recent:
+        reasons.append("recent")
     if path_hits:
         reasons.append("path:" + ",".join(path_hits[:3]))
     if exact_hits:
@@ -289,28 +330,52 @@ def _entry_candidates(
         # why the first Phase 3 run lost 5 tasks: the model got the file but not
         # the line that answers the question.
         named_hits = sum(1 for line in exact_lines if start <= line <= end)
-        # Expansion hits count toward density but at EXPANSION_HIT_WEIGHT, so a
-        # Chinese-only question can reach English lines without letting a
-        # dictionary guess outrank a literal hit in an identifier-rich query.
-        weighted_hits = window_hits + EXPANSION_HIT_WEIGHT * sum(
-            1 for line in expansion_hits if start <= line <= end
+        # A file the query already hits literally keeps the previous window choice,
+        # so an identifier-rich (`hinted`) query's ordering is untouched. The new
+        # priority serves files reached only through the glossary or a matched
+        # symbol name - exactly the Chinese-only case.
+        has_literal = bool(content_hits)
+        expansion_in_window = sum(1 for line in expansion_hits if start <= line <= end)
+        symbol_in_window = sum(1 for line in symbol_lines if start <= line <= end)
+        score_hits = window_hits + EXPANSION_HIT_WEIGHT * expansion_in_window
+        if has_literal:
+            window_weight = window_hits
+        else:
+            # Without this a Chinese-only question has no literal hits in an English
+            # code file, every window weighs 0, and the tie-break emits filler
+            # instead of the definition the bridge and the symbol point at.
+            window_weight = (
+                window_hits
+                + EXPANSION_WINDOW_WEIGHT * expansion_in_window
+                + SYMBOL_WINDOW_WEIGHT * symbol_in_window
+            )
+        # A window of only blank lines is never evidence. HEAD's tie-break preferred
+        # the smallest window, so a lone blank line at the top of a file could win.
+        nonblank = sum(
+            1 for number in range(start, end + 1) if lines[number - 1].strip()
         )
-        scored.append((named_hits, weighted_hits, window_hits, start, end))
+        scored.append(
+            (named_hits, window_weight, score_hits, window_hits, nonblank, start, end)
+        )
+    # Drop blank filler, but only when a real window exists, so a file that is
+    # genuinely all whitespace is still represented.
+    if any(entry[4] for entry in scored):
+        scored = [entry for entry in scored if entry[4]]
     # Emit the windows where the evidence is, not the ones that happen to sit
-    # highest in the file: a named identifier outranks raw density, then density
-    # decides, then the cheaper window on a tie.
-    scored.sort(key=lambda item: (item[0], item[1], item[3] - item[4]), reverse=True)
+    # highest in the file: an outright named identifier first, then the most
+    # matched evidence, then the cheaper window on a tie.
+    scored.sort(key=lambda item: (item[0], item[1], item[5] - item[6]), reverse=True)
     chosen = scored[:MAX_WINDOWS]
     candidates = []
-    for named_hits, weighted_hits, window_hits, start, end in sorted(
-        chosen, key=lambda item: item[3]
-    ):
+    for (
+        named_hits, window_weight, score_hits, window_hits, nonblank, start, end,
+    ) in sorted(chosen, key=lambda item: item[5]):
         if named_hits:
             label = f"named_symbol:{named_hits}"
         elif window_hits:
             label = f"text_hits:{window_hits}"
         elif expansion_hits:
-            label = f"expanded_hits:{weighted_hits:.1f}"
+            label = f"expanded_hits:{window_weight:.1f}"
         else:
             label = f"symbol_lines:{len(hit_lines)}"
         candidates.append(
@@ -319,7 +384,7 @@ def _entry_candidates(
                 start,
                 end,
                 "\n".join(f"{i}: {lines[i - 1]}" for i in range(start, end + 1)),
-                bonuses + weighted_hits * CONTENT_HIT_WEIGHT,
+                bonuses + score_hits * CONTENT_HIT_WEIGHT,
                 [*reasons, label],
             )
         )
@@ -393,6 +458,11 @@ def get_project_context(
     # Chinese tasks cheap now that one prompt can yield dozens of n-grams.
     content_re = content_pattern(primary)
     expansion_re = content_pattern(expansions)
+    # Git recency is a weak hint for an *underspecified* query. When the caller names
+    # identifiers the ranking is already precise and recency only adds noise, so it
+    # is consulted for a Chinese-only question only (roadmap §4; measured).
+    pure_chinese = bool(primary) and not any(_has_ascii(term) for term in primary)
+    recent = recent_paths(root) if pure_chinese else frozenset()
     candidates: list[Candidate] = []
     for entry in index["files"]:
         text = read_text(root / entry["path"])
@@ -406,6 +476,7 @@ def get_project_context(
                 terms,
                 content_re,
                 expansion_re,
+                recent,
             )
         )
 
@@ -429,19 +500,23 @@ def get_project_context(
     memory_candidates = search_memory(task, root, limit=3)
 
     memories = []
+    memory_evicted = 0
     used = 0
     memory_cap = token_budget // 4
     for memory in memory_candidates:
         cost = estimate_tokens(memory.get("title", "") + "\n" + memory.get("content", "")) + 24
         if used + cost > memory_cap:
+            memory_evicted += 1
             continue
         memories.append({**memory, "estimated_tokens": cost})
         used += cost
 
     candidates.sort(key=lambda item: (item.score / max(item.token_cost, 1), item.score), reverse=True)
     selected = []
+    evicted: list[Candidate] = []
     for candidate in candidates:
         if used + candidate.token_cost > token_budget:
+            evicted.append(candidate)
             continue
         selected.append(
             {
@@ -454,6 +529,27 @@ def get_project_context(
             }
         )
         used += candidate.token_cost
+    # Roadmap §4: report what the budget dropped, so a thin package can be told
+    # apart from a thin corpus. This is metadata only - it never changes the
+    # package - so a caller can see "the answer was ranked but did not fit".
+    selection = {
+        "candidates": len(candidates),
+        "selected": len(selected),
+        "evicted": len(evicted),
+        "evicted_top": [
+            {
+                "path": candidate.path,
+                "lines": [candidate.start_line, candidate.end_line],
+                "score": round(candidate.score, 2),
+                "estimated_tokens": candidate.token_cost,
+            }
+            for candidate in evicted[:5]
+        ],
+        "memory_candidates": len(memory_candidates),
+        "memory_selected": len(memories),
+        "memory_evicted": memory_evicted,
+        "memory_cap_tokens": memory_cap,
+    }
     index_status = {
         "version": index.get("version"),
         "indexed_at": index.get("indexed_at"),
@@ -462,6 +558,15 @@ def get_project_context(
         "stale_reason": index.get("stale_reason"),
     }
     notice = "Lexical V0.1 retrieval; verify critical symbols before editing."
+    # Roadmap §7.3: make the known limitation explicit at the point of use. A
+    # Chinese-only question reaches ~70% recall (docs/roadmap.md §7); saying so in
+    # the notice keeps the caller from reading that as a system fault rather than a
+    # calling-style gap, and points at the fix (add identifiers).
+    if primary and not any(_has_ascii(term) for term in primary):
+        notice += (
+            " Chinese-only question: recall is lower; add known identifiers "
+            "(file or symbol names) for the best results - see docs/usage.md."
+        )
     if retrieval["mode"] == "embedding":
         notice = (
             f"Re-ranked by the {retrieval['backend']} backend; verify critical symbols "
@@ -493,6 +598,7 @@ def get_project_context(
         "terms": terms,
         "fragments": selected,
         "memories": memories,
+        "selection": selection,
         "index": index_status,
         "retrieval": retrieval,
         "sufficient": sufficient,

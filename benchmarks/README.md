@@ -76,6 +76,8 @@ python benchmarks/measure.py --budget 1500 --label baseline --variant hinted
 | `raw`（原始中文表达） | 70.5% | 20 / 50 | ≈1480 | 3 | 49 / 74 ms |
 | `hinted`（中文 + 标识符） | 98.5% | 48 / 50 | ≈1440 | 1 | 58 / 83 ms |
 
+> **2026-10-14 更新**：Phase 5 §7.2a（窗口修正）与 Git recency 之后，受控记忆库下 `raw` **73.3%（22/50）**、`hinted` **98.0%（48/50）**；完整记录见 `docs/roadmap.md` §11。上表为 2026-10-11 的历史值。
+
 `hinted` 已达到 90% 退出标准，且**没有任何必召回文件被漏掉**；`raw` 的剩余缺口是"中文提问 vs 英文实现"的跨语言匹配，词法检索解决不了。两轮修正的完整记录（第一轮 `raw` 47.8% / `hinted` 69.9%）见 `docs/roadmap.md` §4。第二轮把窗口收窄、每个文件只保留一个窗口，让同一份预算覆盖更多文件，因此中位包体积与延迟反而同时下降。
 
 评测产物与索引的关系（2026-10-05 第一轮修正后的隔离实测）：派生 JSON 一旦进入索引，就会与源码片段争夺同一份 token 预算。只切换 `benchmarks/results/baseline.json` 是否被索引、其余不变：
@@ -133,6 +135,27 @@ python benchmarks/measure.py --worksheet benchmarks/results/ab.jsonl `
 
 `success` 为布尔、`pairs` 非空且每对都带 `found` 与 `evidence`，否则脚本以退出码 3 拒绝统计。
 
+### 5.1 自动化一个 Harness 臂（Cline 示例）
+
+`benchmarks/ab_run.py` 直接跑一个真实 Harness 臂并采集用量，避免手抄：
+
+```powershell
+$env:PYTHONPATH = "src"
+python benchmarks/ab_run.py --harness cline --arm hil    --out .hil/results/ab_cline_hil.jsonl
+python benchmarks/ab_run.py --harness cline --arm native --out .hil/results/ab_cline_native.jsonl
+```
+
+它做四件事，且**不填写 `success`**（那需要按 `success_criteria` 判定，见 §5 与 `docs/roadmap.md` §10.4）：
+
+1. 切换 `~/.cline/data/settings/cline_mcp_settings.json` 里 `hil` 的 `disabled`（`finally` 恢复，中断也不会让 native 臂带着 HIL）；
+2. 用 `node <npm>/node_modules/cline/bin/cline --json` 跑一回合（`cline` 本身只是 ps1，`subprocess` 直接调用会 `WinError 2`）；
+3. 解析逐行 JSON 的 `run_result.usage`（`inputTokens`/`outputTokens`/`cacheReadTokens`/`model`），并从 `agent_event.contentType=="tool"` 统计工具名直方图（据此核验 HIL 臂真的调用了 `hil__*`）；
+4. 缺 `run_result` 时**重试一次**，仍失败则在行里写 `error`，不让失败静默变成 0 token 数据点。
+
+**协议**：两臂题面相同；HIL 臂在题面后追加"先调用 `hil` 的 `get_project_context` 再作答"，与 OpenClaw 运行一致（`docs/roadmap.md` §5）。
+
+**已知环境坑**：Cline 启动 MCP 服务器时会把**含空格**的脚本路径拆开（日志 `can't open file 'D:\MY\My'`）。本机该卷未启用 8.3 短名，故用无空格路径的 `cmd` 包装器（`~/.hil-mcp/run.cmd`，内容为 `"<python>" "<repo>/run_hil_mcp.py" %*`），并把它填进 `cline_mcp_settings.json` 的 `hil.command`（`args` 置空）。修好后 Cline 可调用 `hil__get_project_context`。
+
 判定：
 
 ```powershell
@@ -180,7 +203,7 @@ python benchmarks/verify.py --write-baseline             # 有意改变检索后
 - Phase 3 就绪：判定机制已就绪（随机分组 + seed、五道门槛、工具结果与 prompt-cache 记录、跨 Harness 复用回执），见 `docs/roadmap.md` §5「Phase 3 就绪状态」；`hinted` 召回已达标，HIL 臂具备采集条件；
 - Phase 4 证据门：已建立（`evidence.py`），可选语义重排已实现并默认为关，见 §8；
 - 回归门：已建立（`verify.py` + `results/baseline.json`），并接入 CI；本轮为**有意的检索改动**，基线已用 `--write-baseline` 重录；
-- 原生执行基线：**尚未填写**（`ab.jsonl` 的 52 行两臂仍为 `null`），因此本仓库不得宣称任何 token 节省比例。
+- 原生执行基线：**OpenClaw 侧已完成**（`ab.jsonl` 为 50 行且 native/hil 两臂均已填）；Cline/Codex 侧待补。**数据未齐前仍不得宣称任何固定的 token 节省比例**（`--compare` 在数据不可追溯时以退出码 3 拒绝输出）。
 
 > 基线说明：本轮是**有意的检索改动**，因此基线用 `--write-baseline` 重录并随提交一起 review——这是唯一允许改写基线的路径。此前记录的"改文档会移动召回数值"现象仍然成立：被引用的源码与文档本身都在索引里，所以继续编辑本文档也会让数值在 8pp 容差内小幅漂移。
 

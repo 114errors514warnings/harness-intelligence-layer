@@ -71,6 +71,38 @@ class CoreTests(unittest.TestCase):
         found = search_memory("ownership facts", self.root)
         self.assertEqual(found[0]["project"], saved["project"])
 
+    def test_rebuild_reuses_unchanged_entries(self) -> None:
+        first = index_project(self.root)
+        self.assertEqual(first["reused_files"], 0)  # nothing to reuse yet
+        again = index_project(self.root)
+        self.assertEqual(again["reused_files"], 2)  # neither file changed
+        (self.root / "auth.py").write_text(
+            "class TokenValidator:\n"
+            "    def validate_token(self, token):\n"
+            "        return token == 'valid'\n\n\n"
+            "def refresh_token(token):\n"
+            "    return token\n",
+            encoding="utf-8",
+        )
+        third = index_project(self.root)
+        self.assertEqual(third["reused_files"], 1)  # only auth.py was re-read
+        auth = next(
+            item for item in load_index(self.root)["files"] if item["path"] == "auth.py"
+        )
+        self.assertIn("refresh_token", {symbol["name"] for symbol in auth["symbols"]})
+
+    def test_selection_summary_accounts_for_the_budget(self) -> None:
+        index_project(self.root)
+        result = get_project_context("authentication token validate_token", self.root, 200)
+        selection = result["selection"]
+        self.assertEqual(selection["selected"], len(result["fragments"]))
+        self.assertEqual(
+            selection["selected"] + selection["evicted"], selection["candidates"]
+        )
+        self.assertLessEqual(len(selection["evicted_top"]), 5)
+        self.assertLessEqual(selection["memory_selected"], 3)
+        self.assertLessEqual(selection["memory_selected"] + selection["memory_evicted"], 3)
+
     def test_context_rejects_budget_below_minimum(self) -> None:
         index_project(self.root)
         with self.assertRaises(ValueError):

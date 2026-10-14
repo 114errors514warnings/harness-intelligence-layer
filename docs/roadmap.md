@@ -16,7 +16,7 @@
 
 ## 2. Phase 0：建立评测基线
 
-状态：进行中。任务集、统计脚本与调用策略对照实验已完成；原生执行基线待填写。
+状态：**OpenClaw 侧已完成**（`benchmarks/results/ab.jsonl` 50 行、native 与 hil 两臂均已填）；Cline/Codex 侧待 Phase 3（D）。任务集、统计脚本与调用策略对照实验已完成。
 
 工作内容：
 
@@ -31,7 +31,7 @@
 - `benchmarks/tasks.jsonl`：**已完成**，Phase 0 时 26 条、后扩建到 **50 条**真实任务，按单文件、跨模块、故障定位、架构问答分类，逐条标注必须召回的文件、符号与成功判据；
 - token 与任务成功率统计脚本：**已完成**，`benchmarks/measure.py`（HIL 侧召回、包体积、延迟、重复片段；A/B 表校验与门槛判定）；
 - 可重复的对照实验说明：**已完成**，`benchmarks/README.md`；
-- 原生执行基线：**未完成**。A/B 表未填写完整时，脚本会拒绝输出任何节省比例（退出码 3）。
+- 原生执行基线：**OpenClaw 侧已完成**（`ab.jsonl` 50 行已填）；Cline/Codex 侧待 Phase 3（D）。A/B 表未填写完整时，脚本仍会拒绝输出任何节省比例（退出码 3）。
 
 已完成测量（HIL 侧，26 题 × 1500 token 预算，索引 schema 2，26 个文件 / 182 个符号；下表是 **Phase 0 当时的 V0.1 词法检索**，Phase 2 修正后的当前值见 §4）：
 
@@ -46,7 +46,7 @@
 
 ## 3. Phase 1：轻量 V0.1
 
-状态：核心功能已完成。
+状态：核心功能已完成（收口于 2026-10-14）。
 
 已完成：
 
@@ -61,18 +61,18 @@
 - 中英文 token 估算测试；
 - MCP 连接探测和 6 项单元测试；
 - 索引自愈：schema 版本 + 文件集指纹（相对路径、大小、mtime）比对后自动重建索引；
-- 陈旧可见：`get_project_context` 返回 `index` 状态块（`refreshed`、`stale_reason`）并在 `notice` 中显式告警；
+- 陈旧可见：`get_project_context` 返回 `index` 状态块（`staleness` 三态取值 `current` / `rebuilt` / `stale`，以及 `refreshed`、`stale_reason`）并在 `notice` 中显式告警，`stale` 时 `fallback` 说明空包不可信；
 - CLI `context --no-refresh`，以及把参数错误转为退出码 2 的 usage error；
 - 测试扩展到 72 项：索引新鲜度、CLI 命令面、MCP 四工具注册与 stdio 端到端往返、评测门阈值与三种退出码、任务语料自洽性、`.hilignore` 排除规则；
 - 跨阶段验证脚本 `benchmarks/verify.py`：8 类断言（任务集一致性、两条文件发现路径一致、包不变量与真实行号、分类召回、相对基线的回归门、延迟报告、索引覆盖、节省门退出码自检），`SKIP` 不计为通过；
 - 回归基线 `benchmarks/results/baseline.json` 与仓库根 `.hilignore`（派生评测产物不进索引）；
 - GitHub Actions CI（Python 3.11 / 3.13）运行单元测试、Phase 0 任务集与 `verify.py` 回归门。
 
-仍需完成：
+仍需完成（收口于 2026-10-14）：
 
-- 在 OpenClaw 和 Cline 中分别完成端到端对照任务，并填写 A/B 表；
-- 记录实际 token、失败案例与重试次数；
-- 修正文档类文件的召回缺口（见 Phase 2 进入条件评估）。
+- ~~在 OpenClaw 和 Cline 中分别完成端到端对照任务，并填写 A/B 表~~ → **已并入 Phase 3（§5）**：OpenClaw 侧已完成，Cline/Codex 侧属 D；
+- ~~记录实际 token、失败案例与重试次数~~ → **已并入 Phase 3（§5）**；
+- ~~修正文档类文件的召回缺口（见 Phase 2 进入条件评估）~~ → **已完成**（Phase 2 修正后 `HIL-017`/`HIL-018` 由 0% 升至 100%，见 §4）。
 
 ## 4. Phase 2：索引质量与增量更新
 
@@ -140,7 +140,7 @@
 - 构建 import、引用和调用关系；
 - 加入 Git 最近变更和历史相关性；
 - 增加索引 schema/version 迁移；
-- 增加变更文件增量索引和文件监听；
+- 增加变更文件增量索引（检索时自愈 + 只重建漂移文件），**不引入文件监听**（裁决与依据见本节末"Phase 2 决策记录"）；
 - 返回上下文选择原因及预算淘汰摘要；
 - 保留本地词法检索作为强制回退路径。
 
@@ -149,6 +149,52 @@
 - Context Recall 不低于 90%；
 - 首次索引之外的检索 P95 小于 1 秒；
 - 索引更新不会阻塞正常 Harness 工作流。
+
+### Phase 2 决策记录：文件监听 vs 检索时自愈（2026-10-14）
+
+冲突：`docs/overview.md` §7 声明"HIL 不监听文件变化"，而本节的计划项又把"文件监听"列入待做。需裁决。
+
+实测（本仓库，37 个可索引文件、Windows、Python 3.14；取多次运行最小值）：
+
+| 操作 | 耗时 |
+|---|---|
+| `discover_files`（ripgrep `--files`） | **134 ms**（几乎全是子进程启动） |
+| `file_state`（stat 全部候选） | 6 ms |
+| `staleness_reason`（发现 + stat） | 139 ms |
+| `load_index(refresh=True)`（树新鲜） | 141 ms |
+| `index_project`（全量重建） | 205 ms |
+| `os.walk`（仅目录遍历） | 2.3 ms |
+
+结论（三维度）：
+
+- **检索质量**：自愈在**每次查询前**比对指纹（路径 + size + mtime），因此查询那一刻索引必然与磁盘一致；监听只是把这件事提前，不可能比自愈更准，反而多一个失败模式——编辑器原子写/重命名导致的漏事件会**静默陈旧**。→ **自愈 ≥ 监听**。
+- **token 消耗**：两者都不直接消耗模型 token。间接地，"陈旧索引"会让返回包漏文件，迫使模型改用原生搜索，从而**增加输入 token**；自愈保证查询时不陈旧，是对 token 的**保护**，而监听一旦漏事件就会漏掉这层保护。→ **自愈 ≥ 监听**。
+- **性能与工作流阻塞**：自愈每次查询付 ~140 ms（几乎全是 ripgrep 启动），发生重建的那次多付 ~65 ms（总计 205 ms）；监听的唯一收益是把这 ~140 ms 移出查询路径。但 205 ms ≪ 本节退出标准的 1 s，且监听需要**常驻进程**（HIL 是 per-call 的 STDIO MCP Server，没有 daemon 生命周期）并在 Windows 上更脆弱。→ 收益不抵成本。
+
+**裁决：保留检索时自愈，删除"文件监听"**（与 overview §7 边界一致）。真正值得优化的是每次调用的自愈开销与重建代价，而不是引入监听：
+
+- [x] **增量重建（2026-10-14 已完成）**：`index_project` 现在复用 schema 相同、size/mtime 未变的索引条目，只重读漂移文件；`--write-baseline` 无关，召回不变（已加单测 `tests/test_core.py::test_rebuild_reuses_unchanged_entries`）。**实测发现瓶颈不在读文件而在发现**：本仓库 `index_project` 全量 ~130 ms，其中 `discover_files`（ripgrep 启动）约 134 ms、读+解析仅约数十毫秒，因此增量重建对本仓库延迟几乎无改善（对超大仓库才有意义）。
+- [ ] **降低每调用发现开销（已评估，暂不改）**：`os.walk` 实测 2 ms 远快于 ripgrep 启动（134 ms），但两条发现路径必须一致（`verify.py` 断言），若让自愈走不同于建索引的路径，可能因 `.gitignore` 语义差异造成指纹永不匹配→反复重建。当前 p95 ~240 ms ≪ 1 s 退出标准，故**不为此改动发现语义**。
+- [x] **保持边界**：HIL 不监听文件变化。
+
+### Phase 2 结构项记录（2026-10-14）
+
+逐项实现并测量（50 题、1500 token、受控记忆库；对照为 §7.2a 的 G：raw 70.8%/21、hinted 98.0%/48）：
+
+| 项 | 状态 | 结果 |
+|---|---|---|
+| 变更文件增量索引 | ✅ 已实现 | 复用未变条目；本仓库延迟收益小（瓶颈在 ripgrep 启动），对超大仓库才有意义 |
+| 预算淘汰摘要 | ✅ 已实现 | `get_project_context.selection`（+单测） |
+| Git 最近变更相关性 | ✅ 已实现 | 新模块 `history.py`（一次有界 `git log`，带 TTL 缓存；非 git 树返回空）。**仅对纯中文提问启用**：raw **73.3%/22（+2.5pp）**、hinted **98.0%/48（零变化）**；若对所有查询启用则 hinted 回退 −0.5pp，故按查询类型门控（与 §7.2a 同一原则：调用方已写出标识符时，新信号只会成为噪声） |
+| schema/version 迁移 | ✅ 决策 | 由版本化重建 + 增量复用覆盖（见下） |
+| import/引用/调用关系 | ❌ 未采纳 | 实现并测量（权重 1.0）：raw 72.8%/22、hinted **96.8%/46**，两个方向都变差 → 已回退，未入库 |
+| Tree-sitter 符号提取 | ❌ 未采纳 | 实测对比（`tree-sitter 0.26` + `tree-sitter-python 0.25`）：tree-sitter **未发现任何正则漏掉的符号**，正则还额外覆盖模块常量；缺口不在符号提取。保持零依赖正则提取（AGENTS：dependency-light） |
+
+**import/引用/调用关系（决定）**：曾实现"直接命中文件的 import 邻居加一个小权重"（`relations.py`，从索引文本解析 `from/import/require/from"…"`），在同语料受控 A/B 上使 `raw` 与 `hinted` **双双变差**，故回退、模块未入库。结论：在本任务集上结构相邻性不能替代词面证据。
+
+**Tree-sitter（决定）**：实测对比见上表——tree-sitter 提取的是正则结果的子集（还漏掉模块常量），**没有任何正则会漏而 tree-sitter 会补的符号**；剩余缺口是窗口选择（§7.2a）与跨语言（§7.4），不是符号提取。因此**不引入该依赖**，保持 dependency-light 的正则提取。
+
+**schema/version 迁移（决定）**：现有行为是"schema 版本不符 → 全量重建"，加上本次的增量复用（仅当版本相同才复用条目）。索引里的符号由源码派生，因此**改变符号规则只能重读源码**，不存在可原地迁移的 payload-only 变更；为假设中的未来变更预置迁移框架属投机基础设施（§8 精神）。故记录为"由版本化重建 + 增量复用覆盖"，**不引入迁移框架**。
 
 ## 5. Phase 3：跨 Harness A/B 验证
 
@@ -222,7 +268,7 @@
 只有出现对应证据时才实施：
 
 - 词法检索无法满足 Recall：增加可选 Embedding 和 Reranker；
-- 代码修改质量无法统一比较：增加 Unified Validator；
+- 代码修改质量无法统一比较：增加 Unified Validator（**已移入 §10.4 Phase 6 待做**：先定义"质量"与生成判定集，再据证据决定是否实施）；
 - 已积累至少 100 个可比任务结果：增加 Model Router；
 - 本地索引性能成为瓶颈：评估 FAISS、Qdrant 或其他向量存储。
 
@@ -232,8 +278,8 @@
 
 | 触发条件 | 证据来源 | 当前判定 |
 |---|---|---|
-| 词法 Recall 不达标 → Embedding + Reranker | `results/baseline.json` 的两变体召回 | **FIRED**：`hinted` 98.5% 已达 90% 门槛，但 `raw` 70.5% 仍低于门槛（跨语言缺口） |
-| 代码修改质量不可统一比较 → Unified Validator | `results/quality.json`（人工判定的修改集合） | 未举证：尚无该文件 |
+| 词法 Recall 不达标 → Embedding + Reranker | `results/baseline.json` 的两变体召回 | **FIRED**：`hinted` 98.5% 已达 90% 门槛，但 `raw` 70.5% 仍低于门槛（跨语言缺口）。**2026-10-14 已量化**：真实多语言重排（`intfloat/multilingual-e5-small`）`raw` 70.8% → 71.8%（+1.0pp）、`hinted` 不回退，但 p50 ≈ 3.7 s / p95 ≈ 4.3 s **超 1 s 门槛**，故保持可选、默认关闭（见 §7.4） |
+| 代码修改质量不可统一比较 → Unified Validator | `results/quality.json`（人工判定的修改集合） | 未举证：尚无该文件（已移入 §10.4：先定义质量与判定集，再据证据决定是否实施） |
 | ≥100 个可比任务结果 → Model Router | `results/ab.jsonl` 已填写的行数 | 未触发：0 条 |
 | 本地检索成为瓶颈 → FAISS / Qdrant | `.hil/results/` 最新报告的 p95 延迟 | 未举证：p95 约 80–120 ms，远低于 1000 ms |
 
@@ -243,7 +289,7 @@
 - 默认 `HIL_EMBEDDINGS=off`，核心检索不引入任何新依赖；
 - 任何一环失败（未装包、端点不可达、响应格式异常、查询中途抛错）都回退本地词法排序，调用不会因此失败；
 - 只对词法排序后的前 40 个候选重排，权重 0.5，词法分仍是主要证据；
-- **不作召回声明**：`hash` 后端在本仓库 50 题上实测与纯词法完全一致（`hinted` 98.5%、达标 48/50），因此它只证明链路可用；真正的语义收益需要用 `benchmarks/measure.py --embedding auto` 在装有对应模型的环境里量化后才能提及。
+- **不作召回声明**：`hash` 后端在本仓库 50 题上实测与纯词法完全一致（`hinted` 98.5%、达标 48/50），因此它只证明链路可用；真正的语义收益需要用 `benchmarks/measure.py --embedding auto` 在装有对应模型的环境里量化后才能提及。**2026-10-14 已在装有 `intfloat/multilingual-e5-small` 的机器上量化：`raw` +1.0pp、`hinted` 不回退、p50 ≈ 3.7 s（超 1 s 门槛）**，见 §7.4。
 
 其余三条保持"未触发/未举证"，不预置基础设施。
 
@@ -280,19 +326,63 @@
 
 结论：7.1 **有效但不足以达标**（`raw` 70.5% < 90%），按计划进入 **7.2 语料自举双语词典**；`hinted` 保持 98.5%。
 
+**§7.2a 状态（2026-10-14，已完成）：不让窗口选择在纯扩展命中下退化**
+
+诊断：`raw` 31 题失败中 **27 题只是 `missing_symbols`（文件已召回）**；根因是 `retrieval._entry_candidates` 的窗口排序键 `(named_hits, weighted_hits, span)`，而 `weighted_hits` 在 `EXPANSION_HIT_WEIGHT=0.0` 下对纯中文提问恒为 0，排序退化到"最小/最靠前的窗口"，常发射**一行空行**（HIL-013 曾发射 `memory.py [74,74]`，标签 `expanded_hits:0.0`）。
+
+同语料受控 A/B（50 题、1500 token、**受控记忆库**；对照为当前语料上的 HEAD 代码 raw 68.8%/19、hinted 98.0%/48）：
+
+| 配置 | raw | hinted |
+|---|---|---|
+| HEAD（对照） | 68.8% / 19 | 98.0% / 48 |
+| A：仅把"非空行"放进排序键 | 68.8% / 20 | 96.5% / 47 |
+| B：扩展命中无条件驱动窗口 | 70.8% / 23 | 94.0% / 45 |
+| D：符号定义无条件分层优先 | 73.3% / 26 | 93.0% / 43 |
+| E：条件化（仅无字面命中的文件） | 71.5% / 21 | 96.5% / 47 |
+| F：符号/扩展按权重计入窗口分 | 70.3% / 22 | 94.0% / 45 |
+| H：仅过滤纯空白窗口 | 70.5% / 21 | 98.0% / 48 |
+| **G（采纳）= H + 条件加权** | **70.8% / 21** | **98.0% / 48** |
+
+结论：真正有效的是 **"绝不发射纯空白窗口"**（H 单独已得 +1.7pp）；无条件的符号/扩展优先级会回退 `hinted`（B/D/F：−2.5 ~ −5pp）。采纳 **G**：`hinted` 零变化、`raw` **+2.0pp**（新增 `tests/test_bridge_window.py`）。**远未达 90%**，剩余缺口需 §7.2（扩大术语覆盖面）与 §7.4（语义模型）。因是**有意的检索改动**，基线本应 `--write-baseline` 重录；但本地记忆库漂移（§10.1）会污染基线，故**暂缓重录**直至 §10.1 的受控记忆库测量落地（CI 无记忆库，回归门仍可判）。
+
 ### 7.2 语料自举的双语词典（无依赖）
 
 - 从仓库自身的**中英混排文本**（中文注释/文档里夹英文标识符）挖掘共现：同一窗口内出现的 CJK n-gram 与英文标识符统计成候选映射，落成**可 review、可版本化的数据文件**。
 - 与 7.1 的分工：7.1 是人写的，精确但覆盖小；7.2 是机器统计，覆盖大但需要阈值与人工抽检。
 - 风险：过拟合到本仓库语料；必须在 50 题上验证，并抽检错误映射。
 
+**7.2 状态（2026-10-14）：已实现并评估，结论是"不采纳"**
+
+- 已实现 `benchmarks/mine_bilingual.py`：与索引同一条发现路径；CJK 侧复用 `terms.extract_terms`（键与查询一致）；英文侧取 `terms.identifier_parts`；**邻近约束** `PROXIMITY=10`（英文词须靠近中文 n-gram）＋专有词停用表；`--holdout` 可排除指定任务依赖的文件。
+- 生成两版并人工审查：**整行共现**（噪声大，如 `文件→hil`、`项目→hil`、`中文→raw`）与**邻近约束**（仍以元讨论/函数词为主，如 `中位输→token`、`以请把→get_project_context`、`只写→version`）。根因：中文文档大量讨论项目专有英文词。
+- 接入并测量（50 题、受控记忆库）：
+
+| 术语表 | raw | hinted |
+|---|---|---|
+| 无自举表（= §7.2a 的 G） | 70.8% / 21 | **98.0% / 48** |
+| 整行共现表 | 72.3% / 22 | 95.0% / 46 |
+| 邻近约束表 | 72.3% / 21 | 97.0% / 47 |
+
+- 结论：`raw` 仅 +1.5pp，`hinted` 回退 −1.0 ~ −3.0pp，违反"`hinted` 不回退"；且 §7.1 人工表**已覆盖有用领域词**，自举表只额外引入元讨论噪声。按"错误映射比没有映射更有害"，**不采纳**——`glossary_auto.json` 不入库、`glossary.py` 接入已回退，脚本保留为离线审查工具。→ 按计划进入 §7.3 与 §7.4。
+
 ### 7.3 调用策略侧的兜底（不改检索）
 
 - 在 `notice` 与文档中明确"纯中文提问请补标识符"。这一步不提升 `raw` 的机械召回，只是把已知限制讲清楚，避免把 `raw` 的表现误当成系统缺陷。
 
+**7.3 状态（2026-10-14，已完成）**：`get_project_context` 的 `notice` 现在在**纯中文提问**（查询词项里没有任何 ASCII 标识符）时追加一句 "Chinese-only question: recall is lower; add known identifiers (file or symbol names)… - see docs/usage.md"；带标识符的查询不追加。新增 `tests/test_bridge_window.py` 两条断言。文档侧（README/`docs/usage.md`）此前已写明该限制。
+
 ### 7.4 若 7.1 / 7.2 仍不足：回到 Phase 4 ①
 
-- 把 §6 ① 的触发证据正式落到"`raw` 未达标"，再评估引入可选多语言模型（`sentence-transformers` 或 HTTP embedding 端点）。当前环境无网络，无法安装模型，因此 7.4 在本机不可执行。
+- 把 §6 ① 的触发证据正式落到"`raw` 未达标"，再评估引入可选多语言模型（`sentence-transformers` 或 HTTP embedding 端点）。**更正（2026-10-14）**：本机实测可联网（`https://pypi.org/simple/` HTTP 200）、`sentence-transformers` 可安装，因此"无网络不可执行"的旧表述作废，7.4 在本机**可执行**。
+
+**7.4 状态（2026-10-14，已量化）**：安装 `sentence-transformers 6.1.0` + `torch 2.14.1`（Python 3.14），用默认多语言模型 `intfloat/multilingual-e5-small` 跑 `measure.py --embedding auto`（50 题、受控记忆库）：
+
+| 臂 | raw | hinted | p50 / p95 延迟 |
+|---|---|---|---|
+| 词法（§7.2a 的 G） | 70.8% / 21 | 98.0% / 48 | ~0.21 / 0.24 s |
+| 语义重排（e5-small） | **71.8% / 22** | **98.0% / 48** | **3.7 / 4.3 s** |
+
+结论：真实多语言语义重排对 `raw` 仅 **+1.0pp**、`hinted` 不回退，但延迟 **p50 ≈ 3.7 s / p95 ≈ 4.3 s**，**远超"检索 p95 < 1 s"的退出标准**。因此：① 语义后端维持**可选、默认关闭**（符合 §8）；② **小多语言模型不足以补齐 `raw` 缺口**——对本任务集而言跨语言缺口不只是词面问题，模型也未能大幅挽回；③ 若要在本机作为可用特性，必须先解决延迟（缓存候选向量、批量化、更小/量化模型）再重新量化。
 
 待做项（按顺序）：
 
@@ -313,7 +403,7 @@
 **Phase 5 §7.3 / §7.4（兜底与升级）**
 
 - [ ] **7.3 文案**：`notice` 与文档措辞（若 7.2 未达标则必做）
-- [ ] **7.4 升级**：若 7.2 后 `raw` 仍 < 90%，把 §6 ① 的证据正式更新为 FIRED，并在一台**能安装多语言模型**的环境里跑 `measure.py --embedding auto`（本机无网络，不可执行）
+- [ ] **7.4 升级**：若 7.2 后 `raw` 仍 < 90%，把 §6 ① 的证据正式更新为 FIRED，并跑 `measure.py --embedding auto`（**2026-10-14 更正：本机可联网、可安装多语言模型，可执行**）
 
 **Phase 3 收尾（与 Phase 5 并行）**
 
@@ -344,9 +434,140 @@
 ## 9. 下一步优先级
 
 1. **已完成**：三轮检索修正 + Phase 5 的第一步。第一轮——中文词项切分（连续中文串拆为 2/3 字 n-gram）与文档片段排序（片段级评分 + 受 token 上限约束且互不重叠的窗口）。第二轮（2026-10-11）——路径匹配精确化、文件级加成不再被窗口体积稀释、点名的标识符窗口优先发射、每文件一个窄窗口以覆盖更多文件。第三轮（同日晚，由 A/B 失败题推动）——点名标识符窗口优先于密度、模块常量纳入符号、`INDEX_VERSION` 升到 3。第四轮（2026-10-12，Phase 5 §7.1）——查询侧中英术语桥（`glossary.py`），只做可达性、不参与排序。结果：26 题上 `raw` 26.9% → 47.8%、`hinted` 65.7% → 69.9% → 96.2%；扩到 **50 题**后 `raw` 50.8%、`hinted` 98.5%；术语桥后 `raw` → **70.5%**、`hinted` 保持 98.5%。`hinted` 已达 90% 退出标准；**Phase 3 的召回门槛在以 `raw` 为输入的正式对照下失败**（§5），跨语言缺口是当前第一优先。基线已随改动 `--write-baseline` 重录，完整验证见 §4。
-2. **已完成（OpenClaw 侧）**：50 题 × 2 臂真实对照，五道门槛全部通过（§5）。要达到 Model Router 的 100 条可比结果门槛，还需**第二个 Harness**（如 Cline）再补 50 条，或继续扩题量——这是当前比整体推进 Phase 4 更高优先级的动作。
+2. **OpenClaw 侧已完成**：50 题 × 2 臂真实对照（§5）。**注意结论是召回门槛失败**：中位 token 下降 43.1% PASS、成功率 100%→100% PASS、平均重试 0→0 PASS、跨 Harness 复用 2/2 PASS，但以运行口径（`raw` 纯中文提问）计 **Context Recall 50.8% < 90%，FAIL**，`--compare` 退出码 1，**Phase 3 未通过**。要达到 Model Router 的 100 条可比结果门槛，还需**第二个 Harness**（Cline/Codex）再补至少 50 条——这是当前比整体推进 Phase 4 更高优先级的动作。
 3. 汇总未召回文件、重复片段和无关上下文（脚本已输出这些字段）。
 4. `hinted` 召回已达 90%（98.5%），"是否投入 Tree-sitter 与增量索引"的决策点已经到达。**现有证据仍提示 Tree-sitter 解决不了剩余缺口**：未召回的不是"符号没被提取"，而是纯中文提问与英文实现之间缺少词面重叠（§4）。
 5. **Phase 5（跨语言召回，§7）**：7.1 术语桥**已完成**（`raw` 50.8% → **70.5%**，`hinted` 零回退）；下一步 7.2 语料自举双语词典。只有两者仍不足，才回到 Phase 4 ① 引入可选多语言模型（需能安装模型）。
 6. 达到数据量门槛（≥100 条可比结果）后再讨论 Validator 和 Model Router。
+7. **Phase 6 候选**（§10）：记忆库增长挤占预算导致召回随使用时间下降（§10.1，已记录、待优化）、标识符词形匹配（§10.2）、文档一致性修正（§10.3）、Unified Validator 与质量判定集（§10.4，由 Phase 4 ② 移入）；触发式，不占用 Phase 4/5 的推进顺序。
+
+## 10. Phase 6 候选：上下文预算与记忆配额（待做）
+
+进入条件：出现与"检索实现"无关、却会**稳定压低召回或让召回不可复现**的证据。当前已有一条成立，另有若干条为候补；与 Phase 4 一样是触发式，不预置基础设施。
+
+### 10.1 记忆库增长挤占 token 预算，召回随本地记忆增长而下降（**已记录，待优化**）
+
+证据（2026-10-14 基线复核；工作区干净、未改任何代码）：`python benchmarks/verify.py` 报 2 项 FAIL——`tasks meeting target hold` 对 `raw`（20→17）与 `hinted`（48→45）。受控实验（把 `.ai-memory/` 临时改名后复测再还原）：`raw` 69.5%/19 → **71.5%/22**，`hinted` 94.8%/45 → **98.0%/48**，两项 FAIL 消失且达到/超过记录基线（`raw` 70.5%/20、`hinted` 98.5%/48）。
+
+根因：`.ai-memory/` 片段与源码片段**共用同一条 token 预算**（`retrieval.get_project_context` 的 `memory_cap = token_budget // 4` 与统一 `used` 累加），本地记忆库增长会挤出代码片段。
+
+影响两面：
+
+- 产品面：真实项目的工程记忆会长期增长，不处理则 HIL 召回会**随使用时间下降**，与"越用越准"的预期相反；这正是 acceptance metric「Context Precision」要回答的问题；
+- 测量面：`.ai-memory/` 不入库（`.gitignore`），本地与 CI 记忆库规模不同，使同一版代码的召回数值**不可直接跨机比较**（见 `benchmarks/README.md` §6）。
+
+待做（方案未定，属 Phase 6）：
+
+- [ ] **量化**：不同记忆库规模下记忆片段占用的预算与代码片段召回的"挤出曲线"（`raw` / `hinted`）
+- [ ] **配额**：让记忆与代码各有独立上限，或让记忆片段按与任务的相关度竞争预算，而不是先占后选
+- [ ] **可复现**：让 `measure.py` / `verify.py` 在受控记忆库（清空或固定 fixture）下运行，使数值可跨机比较；`baseline.json` 一并记录记忆库规模
+- [ ] **回归门**：把"记忆库规模"写进回归门的前提说明，或改造"达标题数"门使其不被记忆库漂移触发
+
+### 10.2 标识符词形匹配（候选，取决于 Phase 5 §7.2 的取舍）
+
+`terms.identifier_parts` 目前用精确集合交集，因此 `工具→tool` 对不上 `EXPECTED_TOOLS`（parts 为 `tools`）、`排除→exclude` 对不上 `DEFAULT_EXCLUDES`（`excludes`）、`测试→test` 对不上 `CrossHarnessReuseTests`（`tests`）。这是**通用检索**改动（`raw` / `hinted` / 英文查询都受影响），不是跨语言专属：若作为 Phase 5 §7.2 术语桥的补充而做，就留在 Phase 5；若目标是提升整体检索质量，则归 Phase 6。
+
+### 10.3 文档与已更正结论的一致性（候选，属流程而非能力）
+
+2026-10-12 对 §5 的更正（Phase 3 **召回门槛失败**，运行时口径为 `raw` 50.8%、退出码 1）此前未传播到其它文档；**已于 2026-10-14 全部修正**。曾断言"全部通过"的位置：
+
+- `docs/overview.md` §6："首次真实跨 Harness A/B 已通过全部门槛……召回 98.5%……`--compare` 退出码 0"；
+- `docs/roadmap.md` §9 第 2 条："五道门槛全部通过（§5）"；
+- `benchmarks/README.md` §7："原生执行基线：尚未填写（`ab.jsonl` 的 52 行两臂仍为 `null`）"（实际 `ab.jsonl` 为 **50** 行且两臂已填）；
+- `docs/usage.md` 与 `docs/roadmap.md` §2 的"原生基线尚未填写 / 未完成"。
+
+以上各处已于 2026-10-14 全部修正（`overview §6`、`roadmap §2/§3/§9`、`benchmarks/README §7`、`usage.md`），并用实测更正了"本机无网络"的旧表述（§7.4）。**此条关闭。**
+
+### 10.4 Unified Validator（由 Phase 4 §6 ② 移入）与"质量"的定义、判定集
+
+Phase 4 §6 ② 的进入条件是"代码修改质量无法统一比较"，`evidence.py` 目前判定为 **NOT EVIDENCED**（无 `benchmarks/results/quality.json`）。按本次决定把它**从 Phase 4 移入 Phase 6 待做**：先定义质量与判定集，再据证据决定是否实现组件。
+
+#### 10.4.1 "质量"的定义（草案）
+
+对 HIL 而言，"一次代码修改的质量" = 给定 `tasks.jsonl` 的任务与其 `success_criteria`，对该 Harness/模型产出的改动做**统一、与 Harness 无关**的判定。四个维度：
+
+| 维度 | 含义 | 可自动化程度 |
+|---|---|---|
+| 正确性 Correctness | 改动满足 `success_criteria` | 部分（判据可机检时全自动，否则需评委/人工） |
+| 安全性 Safety | 既有测试仍通过、无新增 lint/type 错误、公开契约不变 | 高（跑测试与静态检查） |
+| 范围恰当 Scope | 只改必要文件，无无关改动 | 高（diff 涉及文件与 `required_files` 比对） |
+| 可追溯 Traceability | 改动引用/命中必召回文件与符号（回指 Context Recall） | 高（diff 与索引交集） |
+
+"统一"的含义：**同一套 rubric + 同一份证据**（`git diff` + 测试/检查结果）应用到每个 Harness 的输出上，使跨 Harness/模型的质量可比——这正是"统一比较"要解决的事。
+
+#### 10.4.2 判定集（`benchmarks/results/quality.json`）从哪来 / 以什么标准生成
+
+路径已由 `evidence.py` 固定，无需新约定。来源按可靠性排序：
+
+1. **真实 A/B 抽取（主来源）**：跑 Phase 3 的 D（第二/第三 Harness 对照）时，为每一步留存该任务的 `git diff` 与测试结果，自然形成 `(task, harness, model, patch, tests)` 记录。
+2. **可机检子集（客观、零人工）**：`success_criteria` 能被测试/命令判定的任务（如 CLI 退出码、模块常量取值）直接记 pass/fail。
+3. **人工 golden 子集**：对若干 `task × arm` 输出按 §10.4.1 的 rubric 人工打分，用于校准任何自动评分，并提供"质量是否真的不可比"的**证据本体**。
+4. **合成对照（负样本）**：注入已知正确/已知错误的补丁（回退某个修复、植入一个 bug）作为正负控制，保证判定器**有区分力**——否则"全过"是假信号。
+
+生成标准（每条必须可复现）：
+
+- 字段：`{task_id, harness, model, patch_hash, patch_ref, tests_passed, lint_clean, files_touched, rubric:{...}, label, evidence}`；
+- 规模：≥30 条人工判定 × ≥2 个 Harness × ≥2 个分类，外加 ≥10 条负样本；
+- 去偏：人工子集要么 rubric 足够明确，要么 ≥2 名判定者，避免单一判定者偏差；
+- 可复现：`patch_hash` + 测试命令 + 结果必须可重放；缺失即视为未填写（与 A/B 表的 `evidence` 同规则）。
+
+验收（何时从"待做"转为"实施"）：只有当判定集能显示**同一任务下不同 Harness 的改动质量确实不可统一比较**时，才实施 ②；否则保持 `NOT EVIDENCED`，不预置组件（与 §5/§6/§8 的纪律一致）。
+
+## 11. 补齐记录（2026-10-14）
+
+按"先补齐前序阶段、再 D→A→B→C"的顺序执行；每步都跑测试并如实记录，未通过处分析原因后改进。
+
+### P1 文档一致性 + Phase 0/1 收口（**已完成**）
+
+- 修正与 §5 更正矛盾/过期的表述：`roadmap §2/§3/§9`、`overview §6`、`benchmarks/README §7`、`usage.md`；并把"本机无网络"更正为**实测可联网**（§7.4）。
+- Phase 0 状态改为"OpenClaw 侧已完成"；Phase 1 的"仍需完成"三项收口（第 3 项已完成，前两项并入 Phase 3）。
+- 测试：`measure.py --compare --recall-file <raw> --reuse-file reuse.json` → **退出码 1**（召回 69.5% < 90%，与 §5 一致）；单元测试 154 项通过。
+
+### P3 Phase 2 结构项（**已完成**）
+
+- [x] **增量重建**：`index_project` 复用 schema 相同、size/mtime 未变的条目，只重读漂移文件；单测 `test_rebuild_reuses_unchanged_entries`。实测本仓库瓶颈在发现（ripgrep 启动 ~134 ms）而非读文件，故对本仓库延迟收益小、对超大仓库才有意义。
+- [x] **预算淘汰摘要**：`get_project_context` 新增 `selection` 元数据（candidates/selected/evicted/evicted_top/memory_*）；单测 `test_selection_summary_accounts_for_the_budget`。
+- [x] **文件监听决策**：保留检索时自愈、删除监听（§4 决策记录）。
+- [x] **Git 最近变更相关性**：新模块 `history.py`（一次有界 `git log` + TTL 缓存；非 git 树返回空）；**仅对纯中文提问启用** → raw **73.3%/22（+2.5pp）**、hinted **98.0%/48（零变化）**；单测 `tests/test_history.py`。
+- [x] **import/引用/调用关系**：实现并测量后**回退**（raw 与 hinted 双双变差，见 §4）。
+- [x] **Tree-sitter 符号提取**：实测对比后**不采纳**（tree-sitter 未发现任何正则漏掉的符号，见 §4）。
+- [x] **schema/version 迁移**：决策为由版本化重建 + 增量复用覆盖，不引入迁移框架（见 §4）。
+
+### P5 Phase 4（**结论已给出**）
+
+- [x] **① Embedding + Reranker 的真实收益**：由 §7.4 量化（raw +1.0pp、hinted 不回退、p50 3.7 s 超门槛）→ 保持可选、默认关闭。`evidence.py` 的 FIRED 结论已更新。
+- [x] **② Unified Validator 的"质量定义 + 判定集生成标准"**：已在 §10.4 拟定（四维 rubric、`quality.json` 字段/规模/去偏/可复现要求、四类来源）；**实际判定集需在 D（真实对照）中采集**，故组件保持 `NOT EVIDENCED`、不预置。
+
+### P4 Phase 5（**基本完成**）
+
+- [x] **§7.2a**（详见 §7.2a 状态）：`raw` 68.8% → **70.8%**（受控记忆库，+2.0pp，19→21 题），`hinted` 98.0% **零变化**；新增 `tests/test_bridge_window.py`。A–H 共 8 组同语料 A/B，证明了"空白窗口"是主因、无条件优先级会回退 `hinted`。
+- [x] **§7.2 语料自举词典**（详见 §7.2 状态）：脚本 `benchmarks/mine_bilingual.py` 已实现；两版数据均以噪声为主并让 `hinted` 回退，**结论不采纳**（数据未入库、接入已回退）。
+- [x] **§7.3 文案兜底**：纯中文提问的 `notice` 提示已实现（+测试）。
+- [x] **§7.4 语义模型量化**（详见 §7.4 状态）：装 `sentence-transformers 6.1.0` + `torch 2.14.1`，跑 `--embedding auto`（`intfloat/multilingual-e5-small`）：`raw` 71.8% / 22、`hinted` 98.0% / 48，但 p50 ≈ 3.7 s / p95 ≈ 4.3 s **超 1 s 门槛** → 语义后端保持可选、默认关闭。
+
+### 结果与失败分析
+
+- 每阶段的测试命令与数值见各节；未通过项均已记录原因并改进（例：§7.2a 的 B/D/F 回退 `hinted`，改为 G；§7.2 自举表回退 `hinted`，结论不采纳）。
+- 当前 `verify.py` 本地唯一 FAIL 为 §10.1 的记忆库漂移；CI 无 `.ai-memory`，回归门不受影响。
+
+### P6 汇总（**已完成**）
+
+- `docs/roadmap.md`（§4/§6/§7/§10/§11）与 `README.md`、`docs/overview.md`、`docs/usage.md`、`benchmarks/README.md` 已同步。
+
+### D/A/B/C
+
+- **A（最终复测）✅**：受控记忆库下 **raw 73.3%/22、hinted 98.0%/48**，`hinted` 零回退。相对改动前（同语料 HEAD 代码：raw 68.8%/19、hinted 98.0%/48），raw **+4.5pp / +3 题**。`verify.py` 本地仅 §10.1 记忆库漂移 FAIL；CI 无 `.ai-memory` 不受影响。
+- **C（roadmap 入清单）✅**：§7.2a 已写入 §7、§4 结构项记录、§9 第 7 条。
+- **B（文档一致性）✅**：§10.3 的历史矛盾已修正；本轮新结论已回写到 §4/§6/§7 与各文档。
+- **D（第二/第三 Harness 对照）⏸ 已暂停**：选定 **Cline**。HIL 臂 **50/50 完成**（`.hil/results/ab_cline_full_hil.jsonl`，`hil_called` 50/50、0 错误）；native 臂跑到 4/50 后按用户要求停止，**未产出文件**。自动化运行器 `benchmarks/ab_run.py`（含 `--jobs` 并行、`--timeout`、重试与错误捕获）；运行手册见 `benchmarks/README.md` §5.1。
+
+#### D 遇到的问题（2026-10-14，必须记录）
+
+1. **A/B 的 agent 会改动被测评的仓库（最严重）**：Cline 自带 `editor` 工具，被测题时**直接修改了工作树**——新增 `indexer.staleness_state` / `index_staleness_report` 与 `retrieval.index.staleness` 字段，并改了 `skills/hil-project-knowledge/SKILL.md`、`tests/test_index_freshness.py`，还留下 `test_out.txt`。这**同时污染了仓库与被测系统**（A/B 中途改了检索实现）。相关改动已全部回退，工作树现只含本次评审过的改动。**结论：跨 Harness A/B 必须在一次性隔离副本 / `git worktree` 中运行，或禁止编辑类工具，绝不能在真实工作树上跑。**
+2. **慢的根因**（HIL 臂 50 题实测）：单题 agent 时长 p50 **16 s** / mean 42 s / max **459 s**；模型迭代 p50 5 / max **27**；工具调用 p50 18 / max **121**；输入 token p50 **88k** / mean 156k / max **842k**；一臂合计约 **35 min**。原因是"多轮工具循环 + 每轮重发整段对话"（上下文近似二次增长），且 HIL 在当前协议下**并未减少探索**（取了上下文包后仍大量使用原生工具）。运行器原为**串行**，单题卡住还会阻塞整臂。
+3. **中文题面经 argv 传给 cline 偶发失败**：并行 native 臂出现 `error: Unknown command or unquoted prompt`（题面被拆坏）；串行 HIL 臂 50/50 未复现。应改为把题面写入文件 / 走 stdin 传递。
+4. **孤儿进程**：异常退出的运行会残留未清理的 `run_hil_mcp.py`（本次清理了 6 个）。
+5. **已做的缓解**：运行器新增 `--jobs`（并发 6）与 `--timeout`；停止后已恢复 Cline 配置（`hil`/`scenario` 均启用，`hil` 用无空格包装器）。
+
+**尚未完成**：native 臂未跑完；`success` 未判定；`ab.jsonl` 仍为 **50 条**（未达 ≥100）。
 

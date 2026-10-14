@@ -181,24 +181,68 @@ def extract_symbols(text: str) -> list[Symbol]:
     return symbols
 
 
+def _reusable_entries(root: Path) -> dict[str, dict]:
+    """Entries from the stored index that a rebuild may reuse unchanged.
+
+    Only a same-schema index is reusable: a new ``INDEX_VERSION`` means the symbol
+    rules changed, so every entry must be recomputed. A missing or unreadable
+    index simply yields nothing to reuse and the caller does a full build.
+    """
+    path = root / ".hil" / "index.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if payload.get("version") != INDEX_VERSION:
+        return {}
+    entries = payload.get("files")
+    if not isinstance(entries, list):
+        return {}
+    reusable: dict[str, dict] = {}
+    for entry in entries:
+        name = entry.get("path")
+        if isinstance(name, str):
+            reusable[name] = entry
+    return reusable
+
+
 def index_project(project_root: str | Path) -> dict:
+    """Build or refresh the index, re-reading only the files that changed.
+
+    A stored index of the same schema acts as a cache: a file whose size and
+    ``mtime_ns`` still match its entry is not read again, so a one-file edit no
+    longer costs a full-tree rebuild. The fingerprint is still recomputed from
+    the current tree, so the result is identical to a from-scratch build.
+    """
     root = Path(project_root).resolve()
     if not root.is_dir():
         raise ValueError(f"Project root is not a directory: {root}")
     candidates = list(discover_files(root))
     candidate_files, fingerprint = file_state(root, candidates)
+    previous = _reusable_entries(root)
     entries = []
+    reused = 0
     for path in candidates:
         try:
-            text = read_text(path)
-            if text is None:
-                continue
             stat = path.stat()
-        except OSError:
+            relative = path.relative_to(root).as_posix()
+        except (OSError, ValueError):
+            continue
+        prior = previous.get(relative)
+        if (
+            prior is not None
+            and prior.get("size") == stat.st_size
+            and prior.get("mtime_ns") == stat.st_mtime_ns
+        ):
+            entries.append(prior)
+            reused += 1
+            continue
+        text = read_text(path)
+        if text is None:
             continue
         entries.append(
             {
-                "path": path.relative_to(root).as_posix(),
+                "path": relative,
                 "size": stat.st_size,
                 "mtime_ns": stat.st_mtime_ns,
                 "line_count": text.count("\n") + 1,
@@ -224,6 +268,7 @@ def index_project(project_root: str | Path) -> dict:
         "indexed_files": len(entries),
         "candidate_files": candidate_files,
         "symbol_count": sum(len(entry["symbols"]) for entry in entries),
+        "reused_files": reused,
         "index": str(index_dir / "index.json"),
     }
 
