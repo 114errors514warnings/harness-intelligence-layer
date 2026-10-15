@@ -125,6 +125,17 @@ class CoreTests(unittest.TestCase):
                 os.environ[memory_module.MEMORY_DIR_ENV] = previous
         self.assertTrue(search_memory("local fact", self.root))
 
+    def test_confidence_is_high_when_a_named_symbol_matches(self) -> None:
+        index_project(self.root)
+        result = get_project_context("validate_token", self.root, 500)
+        self.assertEqual(result["confidence"], "high")
+
+    def test_confidence_is_low_without_a_named_symbol(self) -> None:
+        index_project(self.root)
+        result = get_project_context("Authentication service", self.root, 500)
+        self.assertEqual(result["confidence"], "low")
+        self.assertIn("Low-confidence package", result["notice"])
+
     def test_context_rejects_budget_below_minimum(self) -> None:
         index_project(self.root)
         with self.assertRaises(ValueError):

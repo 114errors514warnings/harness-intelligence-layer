@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .embeddings import cosine, resolve_backend
+from .embeddings import CachingBackend, cosine, resolve_backend
 from .glossary import expand_terms
 from .history import recent_paths
 from .indexer import load_index, read_text
@@ -403,7 +403,7 @@ RERANK_POOL = 40
 EMBEDDING_WEIGHT = 0.5
 
 
-def _rerank(candidates: list[Candidate], task: str, backend) -> int:
+def _rerank(candidates: list[Candidate], task: str, backend, cache_dir=None) -> int:
     """Re-order the lexical shortlist by similarity to ``task``.
 
     Returns how many candidates were re-ordered. Raises only if the backend
@@ -412,6 +412,10 @@ def _rerank(candidates: list[Candidate], task: str, backend) -> int:
     pool = candidates[:RERANK_POOL]
     if len(pool) < 2:
         return 0
+    if cache_dir is not None:
+        # CPU inference dominates (roadmap §12); the cache makes repeat fragments
+        # a hash lookup instead of a model call.
+        backend = CachingBackend(backend, cache_dir)
     vectors = backend.embed([task, *(candidate.content for candidate in pool)])
     task_vector = vectors[0]
     lexical = [candidate.score / max(candidate.token_cost, 1) for candidate in pool]
@@ -490,7 +494,7 @@ def get_project_context(
     }
     if backend is not None:
         try:
-            reranked = _rerank(candidates, task, backend)
+            reranked = _rerank(candidates, task, backend, root / ".hil" / "embeddings")
         except Exception as exc:  # noqa: BLE001 - a backend failure must degrade, not raise
             retrieval["detail"] = f"{embedding_reason}; re-rank failed ({exc.__class__.__name__})"
         else:
@@ -550,6 +554,19 @@ def get_project_context(
         "memory_evicted": memory_evicted,
         "memory_cap_tokens": memory_cap,
     }
+    # Roadmap §12 (Phase 7.2): the attribution experiment showed an incomplete
+    # package can *lower* success, so say how strong the package is. "high" means an
+    # identifier the query named was matched outright; otherwise the caller should
+    # verify rather than trust it.
+    strong = sum(
+        1
+        for fragment in selected
+        if any(
+            reason.startswith(("symbols:", "named_symbol"))
+            for reason in fragment["reasons"]
+        )
+    )
+    confidence = "high" if strong else "low"
     index_status = {
         "version": index.get("version"),
         "indexed_at": index.get("indexed_at"),
@@ -566,6 +583,11 @@ def get_project_context(
         notice += (
             " Chinese-only question: recall is lower; add known identifiers "
             "(file or symbol names) for the best results - see docs/usage.md."
+        )
+    if confidence == "low" and selected:
+        notice += (
+            " Low-confidence package (no identifier was matched outright): verify "
+            "with the harness's native search before relying on it."
         )
     if retrieval["mode"] == "embedding":
         notice = (
@@ -602,6 +624,7 @@ def get_project_context(
         "index": index_status,
         "retrieval": retrieval,
         "sufficient": sufficient,
+        "confidence": confidence,
         "fallback": fallback,
         "notice": notice,
     }

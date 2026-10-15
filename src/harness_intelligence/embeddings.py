@@ -29,6 +29,7 @@ import math
 import os
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Protocol, Sequence, runtime_checkable
 
 from .terms import extract_terms
@@ -48,6 +49,11 @@ API_KEY_ENV = "HIL_EMBEDDING_API_KEY"
 #: question to an English implementation, which is the gap this backend exists
 #: for. Only a default; env overrides it.
 DEFAULT_MODEL = "intfloat/multilingual-e5-small"
+
+#: Candidate text is truncated before embedding. A fragment is usually far longer
+#: than the model's useful window, and on CPU the cost is linear in tokens, so the
+#: truncation mostly removes cost rather than signal (measured in docs/roadmap.md §12).
+EMBED_TEXT_LIMIT = 512
 
 OFF_MODES = {"", "off", "none", "lexical", "false", "0"}
 KNOWN_BACKENDS = ("sentence-transformers", "http", "hash")
@@ -93,6 +99,50 @@ class HashBackend:
 
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
         return [self._vector(text) for text in texts]
+
+
+class CachingBackend:
+    """Wrap a backend with a disk cache keyed by the embedded text.
+
+    CPU inference is the whole latency of semantic re-ranking (roadmap §12): each
+    fragment costs ~100 ms, so a query that embeds 40 of them takes ~4 s. Candidate
+    windows repeat across queries and across runs, so caching each distinct text
+    once turns most of that into a hash lookup. Text is truncated first
+    (``EMBED_TEXT_LIMIT``) so the key matches exactly what was embedded.
+    """
+
+    def __init__(self, backend, cache_dir: str | Path, limit: int = EMBED_TEXT_LIMIT):
+        self.backend = backend
+        self.name = f"{getattr(backend, 'name', 'backend')}+cache"
+        self.cache_dir = Path(cache_dir)
+        self.limit = limit
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.cache_path = self.cache_dir / f"{getattr(backend, 'name', 'backend')}.json"
+        self.store: dict[str, list[float]] = self._load()
+
+    def _load(self) -> dict[str, list[float]]:
+        try:
+            data = json.loads(self.cache_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _save(self) -> None:
+        try:
+            self.cache_path.write_text(json.dumps(self.store), encoding="utf-8")
+        except OSError:
+            pass
+
+    def embed(self, texts: Sequence[str]) -> list[list[float]]:
+        prepared = [text[: self.limit] for text in texts]
+        keys = [hashlib.sha1(text.encode("utf-8")).hexdigest() for text in prepared]
+        missing = [index for index, key in enumerate(keys) if key not in self.store]
+        if missing:
+            vectors = self.backend.embed([prepared[index] for index in missing])
+            for index, vector in zip(missing, vectors):
+                self.store[keys[index]] = list(vector)
+            self._save()
+        return [self.store[key] for key in keys]
 
 
 class SentenceTransformerBackend:
