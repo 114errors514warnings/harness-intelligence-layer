@@ -50,8 +50,10 @@ class CoreTests(unittest.TestCase):
     def test_context_counts_memory_against_budget(self) -> None:
         index_project(self.root)
         record_memory("architecture", "Auth token", "Authentication token validation lives in auth.py.", self.root)
-        result = get_project_context("auth token", self.root, 300)
-        self.assertLessEqual(result["estimated_tokens"], 300)
+        # The memory quota is a fraction of the budget (roadmap §13 Phase 8.6), so a
+        # budget must be large enough for one fact before it can appear at all.
+        result = get_project_context("auth token", self.root, 600)
+        self.assertLessEqual(result["estimated_tokens"], 600)
         self.assertTrue(result["memories"])
 
     def test_memory_round_trip(self) -> None:

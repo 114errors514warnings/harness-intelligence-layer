@@ -84,6 +84,17 @@ EXPANSION_WINDOW_WEIGHT = 1.0
 #: unaffected, so cross-file ordering - and therefore `hinted` - does not move.
 SYMBOL_WINDOW_WEIGHT = 1.0
 
+#: Memory budget, as a fraction of the token budget and as an absolute ceiling on one
+#: memory. Memories are selected before code, and a single fact is often 150-760
+#: tokens, so the old ``budget // 4`` let one large memory take a quarter of the
+#: package and displace code (measured: `hinted` 97.5% empty -> 94.8% with a 40-fact
+#: store). Roadmap §13 (Phase 8.6).
+MEMORY_BUDGET_DIVISOR = 8
+MEMORY_CAP_TOKENS = 200
+
+#: A memory must overlap the query by at least this many terms before it earns budget.
+MEMORY_MIN_OVERLAP = 2
+
 #: A path term shorter than this is too generic to match a path segment by
 #: prefix: ``git`` would otherwise hit ``.github/`` and ``ai`` would hit
 #: ``openai.yaml``, handing a flat bonus to files that have nothing to do with
@@ -523,8 +534,11 @@ def get_project_context(
     memories = []
     memory_evicted = 0
     used = 0
-    memory_cap = token_budget // 4
+    memory_cap = min(token_budget // MEMORY_BUDGET_DIVISOR, MEMORY_CAP_TOKENS)
     for memory in memory_candidates:
+        if memory.get("score", 0) < MEMORY_MIN_OVERLAP:
+            memory_evicted += 1
+            continue
         cost = estimate_tokens(memory.get("title", "") + "\n" + memory.get("content", "")) + 24
         if used + cost > memory_cap:
             memory_evicted += 1
