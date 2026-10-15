@@ -461,7 +461,7 @@ HIL 能减少重复搜索，但不能在没有对照数据时保证固定节省�
 
 本仓库已经把该流程脚本化：任务集在 `benchmarks/tasks.jsonl`，统计与门槛判定在 `benchmarks/measure.py`，填写与判定步骤见 `benchmarks/README.md`。当前状态：
 
-- HIL 侧指标可直接复现（召回、包体积、延迟、重复片段），并可用 `--embedding auto|hash` 增加一条语义重排对照臂；
+- HIL 侧指标可直接复现（召回、包体积、延迟、重复片段），并可用 `--embedding auto|hash|http|sentence-transformers` 增加一条语义重排对照臂；`http` 走 OpenAI 兼容端点（如硅基流动：`HIL_EMBEDDING_URL=https://api.siliconflow.cn/v1`、`HIL_EMBEDDING_MODEL=BAAI/bge-m3`、`HIL_EMBEDDING_API_KEY=...`）；
 - A/B 判定覆盖 roadmap §5 的五道门槛（token、Recall、成功率、重试次数、跨 Harness 复用），随机分组种子与两臂执行顺序都会记录；
 - 原生基线：**OpenClaw 与 Cline 两侧均已填**（`ab.jsonl` 共 100 行）；Codex 侧未做；A/B 表未填满时脚本会拒绝输出节省比例（退出码 3）；
 - 因此本仓库目前不宣称任何固定节省百分比。

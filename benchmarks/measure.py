@@ -577,7 +577,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--hints", default=str(DEFAULT_HINTS))
     parser.add_argument(
         "--embedding",
-        choices=("off", "auto", "on", "hash"),
+        choices=("off", "auto", "on", "hash", "http", "sentence-transformers"),
         default=None,
         help="optional semantic re-ranking arm (default: follow HIL_EMBEDDINGS, else off)",
     )
