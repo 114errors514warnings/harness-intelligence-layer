@@ -32,7 +32,7 @@ Do not rebuild the index before every query. V0.1 has no file watcher, but retri
 
 Call `get_project_context(task, project_root, token_budget)` before broad repository exploration when the task is unfamiliar, cross-file, architectural, or diagnostic.
 
-Write the `task` string as one sentence **plus the identifiers you already know**: file names, symbol names, configuration keys, error codes, CLI flags. Measured on the repository's task set (50 real tasks, 1500 token budget), identifier-rich task strings raised mean context recall from 70.5% to 98.5%, which meets the 90% target with almost no required file missed; a Chinese-only question reaches 70.5% (a query-side zh->en glossary bridge lifted it from 50.8%), because it still shares little literal form with the English implementation files. Never omit an identifier you already have.
+Write the `task` string as one sentence **plus the identifiers you already know**: file names, symbol names, configuration keys, error codes, CLI flags. Measured on the repository's task set (50 real tasks, 1500 token budget), identifier-rich task strings raise mean context recall to ~97%, which meets the 90% target with almost no required file missed; a Chinese-only question reaches ~74% (a query-side zh->en glossary bridge lifted it from 50.8%), because it still shares little literal form with the English implementation files. Never omit an identifier you already have.
 
 Use the smallest useful budget:
 
@@ -40,7 +40,7 @@ Use the smallest useful budget:
 - 1200–2000 tokens for ordinary cross-file work;
 - up to 3000 tokens for architecture or broad dependency analysis.
 
-Inspect the returned `fragments`, `memories`, selection reasons, estimated token count, and the `index` status block. Treat V0.1 lexical results as a reading shortlist, not proof that no other relevant code exists. Verify critical code before editing.
+Inspect the returned `fragments`, `memories`, selection reasons, estimated token count, and the `index` status block. **Trust the flags rather than guessing**: `sufficient: false` means nothing matched at all, so fall back to native search; `confidence: low` means no identifier you named was matched outright, so treat the package as a weak shortlist and verify with native search before relying on it (a weak package can actively mislead - measured in `docs/roadmap.md` §11). Treat V0.1 lexical results as a reading shortlist, not proof that no other relevant code exists. Verify critical code before editing.
 
 Documentation questions ("what does the roadmap say", "why was this decision made") are the weakest case in V0.1: docs declare no symbols and their lines are long, so they lose to code fragments under the token-budget ranking. Read `docs/*` directly for those.
 
