@@ -170,6 +170,9 @@ def run_cline(
         except subprocess.TimeoutExpired:
             error = "timeout"
             continue
+        except Exception as exc:  # noqa: BLE001 - one bad run must not sink the arm
+            error = f"{exc.__class__.__name__}: {exc}"[:400]
+            continue
         usage, tools, final_text = _parse(proc.stdout)
         if usage:
             return usage, tools, final_text, ""
@@ -250,7 +253,27 @@ def main() -> int:
             with ThreadPoolExecutor(max_workers=args.jobs) as pool:
                 futures = {pool.submit(measure, task): task for task in tasks}
                 for done, future in enumerate(as_completed(futures), 1):
-                    row = future.result()
+                    task = futures[future]
+                    try:
+                        row = future.result()
+                    except Exception as exc:  # noqa: BLE001 - record, do not sink the arm
+                        row = {
+                            "id": task["id"],
+                            "harness": args.harness,
+                            "arm": args.arm,
+                            "category": task["category"],
+                            "prompt": task["prompt"],
+                            "success": None,
+                            "usage": {},
+                            "tool_counts": {},
+                            "hil_called": False,
+                            "answer_excerpt": "",
+                            "error": f"{exc.__class__.__name__}: {exc}"[:400],
+                            "evidence": (
+                                f"cline {args.harness} {args.arm} run "
+                                f"{datetime.now(timezone.utc).isoformat()}"
+                            ),
+                        }
                     rows.append(row)
                     report(done, row)
         else:
