@@ -465,3 +465,23 @@ HIL 能减少重复搜索，但不能在没有对照数据时保证固定节省�
 - A/B 判定覆盖 roadmap §5 的五道门槛（token、Recall、成功率、重试次数、跨 Harness 复用），随机分组种子与两臂执行顺序都会记录；
 - 原生基线：**OpenClaw 与 Cline 两侧均已填**（`ab.jsonl` 共 100 行）；Codex 侧未做；A/B 表未填满时脚本会拒绝输出节省比例（退出码 3）；
 - 因此本仓库目前不宣称任何固定节省百分比。
+
+## 各项目运行状态检查（	ools/hil_status.py）
+
+一个**运维脚本**——有意**不进入** MCP 四工具面。它扫描若干根目录，找出含 .hil/ 的项目，**只读**检查每个项目的索引与记忆库，并把报告写入 <项目>/.hil/hil-status.md。
+
+`powershell
+src = src
+python tools/hil_status.py                    # 写报告到每个项目的 .hil/
+python tools/hil_status.py --dry-run          # 只看不写
+python tools/hil_status.py --root D:\MY     # 指定扫描根（可重复）
+ = D:\MY;C:\work    # 或用环境变量
+`
+
+要点：
+
+- **只读**：探针用 
+efresh_index=False，绝不顺手重建别人的索引；索引漂移只**报告**，由调用方决定何时 index_project。
+- 唯一写入的是报告文件本身，而 .hil/ 已被两条发现路径排除，不会改变任何项目的索引。
+- 报告含：索引时间/文件数/符号数/新鲜度、记忆库统计（**只计数，不含正文**）、固定探针的连通性结果、配置、结论与可执行建议。
+- 默认跳过临时目录（%TEMP% 下的测试与 A/B 草稿树），也不会进入某个项目内部再找嵌套项目。
