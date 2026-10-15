@@ -404,7 +404,7 @@
 **Phase 3 收尾（与 Phase 5 并行）**
 
 - [x] **第二 Harness**：**已完成（Cline，2026-10-15）**——`ab.jsonl` 达 **100 条**可比结果，§6 ③ Model Router 触发随之 **FIRED**（见 §11 D）
-- [~] **分离检索贡献与调用差异**（进行中）：已加 `control` / `injected` 两臂——**同一句指令、两臂都不调用 hil 工具**，只差是否把检索包贴进题面（见 `benchmarks/README.md` §5.2）；正在采集 50×2，采集后判定"检索包本身是否省 token"
+- [x] **分离检索贡献与调用差异（已完成，2026-10-15）**：`control`（不注入）vs `injected`（把检索包贴进题面），**同一指令、两臂都不调 hil**。结果：配对中位 token **−16.1%**，但成功率 **−6.0pp**（90.0%→84.0%）。结论：检索包本身确实省 token（≈16%），但注入不完整的包会掉成功率；`--compare` 的 32.2% 约一半来自检索、一半来自调用差异。详见 `benchmarks/README.md` §5.2
 - [x] **数据与代码对齐（部分完成）**：Cline 行（2026-10-15）用的是**当前**检索；OpenClaw 行是 7.1 之前，已在 §11 标注。严格对齐需用网关重跑 OpenClaw 臂（本机网关未常驻，未做）
 
 **复核（每次改动）**
@@ -589,4 +589,11 @@ Phase 4 §6 ② 的进入条件是"代码修改质量无法统一比较"，`evid
 `--compare` **退出码 1**：与首次一致，**Phase 3 仍只卡在召回门槛**。`ab.jsonl` 现已 100 条，§6 ③ Model Router 触发条件随之 **FIRED**。
 
 **方法学声明**：① Cline 的 `success` 由**自动评委**（`deepseek-v4.1-flash`，见 `benchmarks/judge_success.py`，按每题 `success_criteria`）判定，非人工，宜抽检；② HIL 臂被要求"先取上下文"（调用差异），故 token 下降**不能单独归因于检索质量**；③ 两 Harness 用了不同模型（OpenClaw `deepseek-v4-flash`、Cline `deepseek-v4.1-flash`），已在 `--compare` 的 `models seen` 中记录。
+
+### 方法学补强（2026-10-15）
+
+- **受控记忆库**：新增 `HIL_MEMORY_DIR`（只影响 `search_memory` 的读取）；`measure.py` / `verify.py` 默认读**空**记忆库，消除本地记忆库漂移导致的假 FAIL。`verify.py` 全绿、零漂移；基线已在受控条件下 `--write-baseline` 重录。
+- **归因实验**（`control` vs `injected`；**同一指令、两臂都不调 hil**，只差题面里有没有贴检索包）：配对中位 token **−16.1%**（mean −11.3%）、成功率 **−6.0pp**（90.0% → 84.0%）。结论：检索包本身**确实省 ≈16% token**，但注入不完整的包会掉成功率；`--compare` 的 32.2% 约**一半来自检索内容、一半来自调用差异**。
+- **运行器加固**：单个任务抛出异常不再拖垮整臂（记 `error` 行）。
+- **数据与代码对齐**：Cline 行使用当前检索；OpenClaw 行为 7.1 之前（需网关重跑才能严格对齐）。
 
