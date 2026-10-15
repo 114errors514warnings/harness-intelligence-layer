@@ -89,7 +89,7 @@ python benchmarks/measure.py --budget 1500 --label baseline --variant hinted
 
 历史对照：同一实验在检索修正前测得 `hinted` 65.7% → 63.8%、达标 12 → 11，即一个 6 KB 派生文件吃掉 1.9 个百分点召回与 1 个达标任务，而中位包体积不变——说明是"内容挤出"而非"体积膨胀"。修正后这个挤出在当前语料上不再复现（小派生文件不再能把整份预算挤出某条任务），但规则仍然保留：**排除的语义是"测量语料里不含测量产物"**，这是测量卫生的前提，不依赖当前语料恰好测不出差异。因此：每次运行的报告写入 `.hil/results/`，入库的 `results/` 由仓库根 `.hilignore` 显式排除，`verify.py` 断言基线不被索引。
 
-测量环境说明：`.ai-memory/` 在 `.gitignore` 中（工程记忆是本地资产，不入库），而检索会把记忆片段计入同一条预算。因此**本地实测与 CI 跑出的召回数值会因记忆库内容不同而有差异**，回归门的 8pp 容差覆盖这类环境差；比较数值时应连同 `indexed files` 与记忆库规模一起记录。
+测量环境说明（2026-10-15 起改为**受控**）：`.ai-memory/` 在 `.gitignore` 中（工程记忆是本地资产，不入库），检索又会把记忆片段计入同一条预算，因此**同一份代码在不同机器上会因本地记忆库不同而报出不同召回**——这正是 `verify.py` 反复 FAIL 的原因（见 `docs/roadmap.md` §10.1）。现在 `measure.py` 与 `verify.py` 默认把读侧记忆库**固定为空目录**（`memory.MEMORY_DIR_ENV = HIL_MEMORY_DIR`，只影响 `search_memory` 的读取；`record_memory` 仍写项目自身），所以回归门与基线在任何机器上一致；要计入真实记忆库就传 `--memory-dir <path>`。基线已在受控（空）记忆库下用 `--write-baseline` 重录。
 
 ## 5. A/B 对照实验
 
@@ -168,6 +168,20 @@ python benchmarks/ab_run.py --arm hil --root <tmp> --provider ollama --model dee
 `--root` 会把 Cline 的 `-c` 与 hil 的 `HIL_PROJECT_ROOT` 都指向副本，真实仓库不再被改。副本无 `.git`，因此该次 A/B 中 Git recency 不生效（两臂一致）。
 
 **题面必须以 ASCII 结尾**：题面经 argv 传给 cline，若以**非 ASCII 字符结尾会被偶发截断**（native 臂曾因此 21/50 失败：`Unknown command or unquoted prompt`）。运行器给两臂统一追加 `ANSWER_TAIL`（一句 ASCII 尾注）以保证对称；自建调用链应改为把题面写入文件或走 stdin。
+
+### 5.2 归因实验：检索贡献 vs 调用差异
+
+`--compare` 的 token 下降与"是否被要求先取上下文"混在一起。要分离，用**同一句指令、两臂都不调用 hil 工具**，只差是否把检索包**贴进题面**：
+
+```powershell
+python benchmarks/ab_run.py --arm control  --root <tmp> --provider ollama --model deepseek-v4.1-flash --jobs 6 --out .hil/results/ab_attr_control.jsonl
+python benchmarks/ab_run.py --arm injected --root <tmp> --provider ollama --model deepseek-v4.1-flash --jobs 6 --out .hil/results/ab_attr_injected.jsonl
+```
+
+- `control`：题面 + ASCII 尾注；
+- `injected`：题面 + ASCII 尾注 + `INJECT_HEADER` + `get_project_context` 渲染出的上下文包。
+
+两臂 `hil` 均禁用，故唯一差异是"题面里有没有那一段包"。若 `injected` 明显更省 token 且成功率不降，说明**检索包本身**在省；若两者接近，则此前 `hil` 臂的下降主要来自调用差异。
 
 判定：
 

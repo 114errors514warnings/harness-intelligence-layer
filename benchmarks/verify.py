@@ -29,6 +29,8 @@ import argparse
 import contextlib
 import io
 import json
+import os
+import shutil
 import statistics
 import sys
 import tempfile
@@ -625,6 +627,33 @@ def write_baseline(path: Path, tasks: list[dict], arms: dict[str, dict], budget:
     print(f"baseline written: {path}")
 
 
+@contextmanager
+def controlled_memory(path: str):
+    """Pin the memory store this run reads, so recall cannot drift with it.
+
+    ``.ai-memory`` is a gitignored local asset, so the same code reports different
+    recall on different machines and the regression gate fires on that difference
+    (``docs/roadmap.md`` §10.1). Passing ``path`` reads that store; otherwise a fresh
+    empty one is used. Only reads move: ``record_memory`` still writes to the project.
+    """
+    previous = os.environ.get(memory.MEMORY_DIR_ENV)
+    created = None
+    target = path
+    if not target:
+        created = tempfile.mkdtemp(prefix="hil-memory-")
+        target = created
+    os.environ[memory.MEMORY_DIR_ENV] = str(Path(target).resolve())
+    try:
+        yield os.environ[memory.MEMORY_DIR_ENV]
+    finally:
+        if previous is None:
+            os.environ.pop(memory.MEMORY_DIR_ENV, None)
+        else:
+            os.environ[memory.MEMORY_DIR_ENV] = previous
+        if created:
+            shutil.rmtree(created, ignore_errors=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Verify HIL phase invariants and gates")
     parser.add_argument("--root", default=str(PROJECT_ROOT), help="project to verify")
@@ -651,6 +680,12 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="record this run as the new baseline instead of comparing against it",
     )
+    parser.add_argument(
+        "--memory-dir",
+        default="",
+        help="memory store to read; default is an empty one, so the gate is "
+        "reproducible across machines (HIL_MEMORY_DIR)",
+    )
     args = parser.parse_args(argv)
 
     root = Path(args.root).resolve()
@@ -668,7 +703,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.limit:
         tasks = tasks[: args.limit]
         print(f"  (limited to {len(tasks)} tasks; the regression gate will skip)")
-    arms = run_arms(tasks, root, args.budget, variants, Path(args.hints))
+    with controlled_memory(args.memory_dir) as store:
+        print(f"memory store: {store} (empty unless --memory-dir is given)")
+        arms = run_arms(tasks, root, args.budget, variants, Path(args.hints))
 
     print("")
     with tempfile.TemporaryDirectory(prefix="hil-verify-") as tmp:

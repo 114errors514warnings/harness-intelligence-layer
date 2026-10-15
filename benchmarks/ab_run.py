@@ -47,6 +47,28 @@ HIL_INSTRUCTION = (
 #: in ASCII - never failed). The same tail on both arms keeps the comparison fair.
 ANSWER_TAIL = "\n\nAnswer concisely and cite the file paths you relied on."
 
+#: The attribution experiment (`docs/roadmap.md` §9): both arms get the *same*
+#: instruction and no hil tool; the only difference is whether the retriever's
+#: package is pasted into the prompt. That separates "the package helped" from
+#: "being told to fetch context changed the agent's behaviour".
+INJECT_HEADER = (
+    "\n\nProject context package from the HIL retriever (use it if relevant):\n"
+)
+
+
+def context_package(root: Path, task: str, budget: int = 1500) -> str:
+    """The HIL package for ``task``, rendered as plain text for prompt injection."""
+    sys.path.insert(0, str(ROOT / "src"))
+    from harness_intelligence.retrieval import get_project_context
+
+    result = get_project_context(task, root, budget)
+    blocks = [
+        f"### {fragment['path']}:{fragment['lines'][0]}-{fragment['lines'][1]}\n"
+        f"{fragment['content']}"
+        for fragment in result["fragments"]
+    ]
+    return "\n\n".join(blocks)
+
 
 def load_tasks(path: Path, limit: int, task_ids: list[str]) -> list[dict]:
     tasks = []
@@ -158,7 +180,7 @@ def run_cline(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run one A/B arm through a harness CLI")
     parser.add_argument("--harness", default="cline")
-    parser.add_argument("--arm", choices=["native", "hil"], required=True)
+    parser.add_argument("--arm", choices=["native", "hil", "control", "injected"], required=True)
     parser.add_argument("--tasks", default=str(HERE / "tasks.jsonl"))
     parser.add_argument("--out", required=True, help="JSONL output path")
     parser.add_argument("--limit", type=int, default=0)
@@ -188,6 +210,8 @@ def main() -> int:
         prompt = task["prompt"] + ANSWER_TAIL
         if args.arm == "hil":
             prompt += HIL_INSTRUCTION
+        if args.arm == "injected":
+            prompt += INJECT_HEADER + context_package(root, task["prompt"])
         usage, tools, text, error = run_cline(
             prompt, args.model, args.provider, args.timeout, root
         )

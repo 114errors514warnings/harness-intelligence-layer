@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,6 +13,22 @@ from .terms import extract_terms
 CATEGORIES = {
     "architecture", "decisions", "bugs", "conventions", "experiments", "tasks"
 }
+
+#: Read-side override for the memory store. The store is gitignored, so two machines
+#: with the same code but different local facts report different recall; a benchmark
+#: sets this to a fixed or empty directory to make its numbers reproducible. It only
+#: affects *reads*: ``record_memory`` always writes to the project's own store.
+MEMORY_DIR_ENV = "HIL_MEMORY_DIR"
+
+
+def memory_dir(project_root: str | Path) -> Path:
+    """Directory ``search_memory`` reads from (``HIL_MEMORY_DIR`` overrides)."""
+    root = Path(project_root).resolve()
+    override = os.environ.get(MEMORY_DIR_ENV, "").strip()
+    if not override:
+        return root / ".ai-memory"
+    candidate = Path(override)
+    return candidate if candidate.is_absolute() else root / candidate
 
 
 def record_memory(
@@ -47,7 +64,7 @@ def record_memory(
 
 def search_memory(query: str, project_root: str | Path, limit: int = 5) -> list[dict]:
     root = Path(project_root).resolve()
-    memory_root = root / ".ai-memory"
+    memory_root = memory_dir(root)
     if not memory_root.exists():
         return []
     query_terms = extract_terms(query, limit=None)

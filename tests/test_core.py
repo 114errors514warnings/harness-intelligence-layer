@@ -103,6 +103,28 @@ class CoreTests(unittest.TestCase):
         self.assertLessEqual(selection["memory_selected"], 3)
         self.assertLessEqual(selection["memory_selected"] + selection["memory_evicted"], 3)
 
+    def test_memory_dir_env_overrides_the_read_path(self) -> None:
+        # The store is gitignored, so a benchmark pins it to get reproducible
+        # recall. Only reads move; writes still land in the project's own store.
+        import os
+
+        from harness_intelligence import memory as memory_module
+
+        record_memory("conventions", "Local fact", "visible in the project store", self.root)
+        empty = Path(self.temp.name) / "empty-memory"
+        empty.mkdir()
+        previous = os.environ.get(memory_module.MEMORY_DIR_ENV)
+        os.environ[memory_module.MEMORY_DIR_ENV] = str(empty)
+        try:
+            self.assertEqual(search_memory("local fact", self.root), [])
+            self.assertEqual(memory_module.memory_dir(self.root), empty.resolve())
+        finally:
+            if previous is None:
+                os.environ.pop(memory_module.MEMORY_DIR_ENV, None)
+            else:
+                os.environ[memory_module.MEMORY_DIR_ENV] = previous
+        self.assertTrue(search_memory("local fact", self.root))
+
     def test_context_rejects_budget_below_minimum(self) -> None:
         index_project(self.root)
         with self.assertRaises(ValueError):

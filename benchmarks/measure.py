@@ -26,11 +26,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import re
+import shutil
 import statistics
 import sys
+import tempfile
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -40,6 +44,7 @@ if str(SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(SOURCE_ROOT))
 
 from harness_intelligence import __version__ as HIL_VERSION  # noqa: E402
+from harness_intelligence import memory  # noqa: E402
 from harness_intelligence.indexer import (  # noqa: E402
     INDEX_VERSION,
     index_project,
@@ -535,6 +540,27 @@ def write_runbook(
     print("fill benchmarks/results/ab.jsonl from these cards, then run --compare")
 
 
+@contextmanager
+def controlled_memory(path: str):
+    """Pin the memory store this run reads (see ``verify.controlled_memory``)."""
+    previous = os.environ.get(memory.MEMORY_DIR_ENV)
+    created = None
+    target = path
+    if not target:
+        created = tempfile.mkdtemp(prefix="hil-memory-")
+        target = created
+    os.environ[memory.MEMORY_DIR_ENV] = str(Path(target).resolve())
+    try:
+        yield os.environ[memory.MEMORY_DIR_ENV]
+    finally:
+        if previous is None:
+            os.environ.pop(memory.MEMORY_DIR_ENV, None)
+        else:
+            os.environ[memory.MEMORY_DIR_ENV] = previous
+        if created:
+            shutil.rmtree(created, ignore_errors=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Phase 0 measurement harness")
     parser.add_argument("--root", default=str(PROJECT_ROOT), help="project to measure")
@@ -554,6 +580,12 @@ def main(argv: list[str] | None = None) -> int:
         choices=("off", "auto", "on", "hash"),
         default=None,
         help="optional semantic re-ranking arm (default: follow HIL_EMBEDDINGS, else off)",
+    )
+    parser.add_argument(
+        "--memory-dir",
+        default="",
+        help="memory store to read; default is an empty one, so recall is "
+        "reproducible across machines (HIL_MEMORY_DIR)",
     )
     parser.add_argument(
         "--out",
@@ -639,7 +671,9 @@ def main(argv: list[str] | None = None) -> int:
     indexed_paths = {entry["path"] for entry in load_index(root)["files"]}
     print(f"indexed files: {len(indexed_paths)} | tasks: {len(tasks)}")
     print()
-    rows = run_hil_arm(tasks, root, args.budget, indexed_paths, args.embedding)
+    with controlled_memory(args.memory_dir) as store:
+        print(f"memory store: {store} (empty unless --memory-dir is given)")
+        rows = run_hil_arm(tasks, root, args.budget, indexed_paths, args.embedding)
     summary = summarize(rows, args.budget)
     print_table(rows)
     print()
