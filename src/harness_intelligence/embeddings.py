@@ -27,6 +27,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -54,6 +55,10 @@ DEFAULT_MODEL = "intfloat/multilingual-e5-small"
 #: than the model's useful window, and on CPU the cost is linear in tokens, so the
 #: truncation mostly removes cost rather than signal (measured in docs/roadmap.md §12).
 EMBED_TEXT_LIMIT = 512
+
+#: Upper bound on cached vectors, so a long-lived server cannot grow the cache
+#: without limit. Trimmed oldest-first (dicts keep insertion order).
+MAX_CACHE_ENTRIES = 20000
 
 OFF_MODES = {"", "off", "none", "lexical", "false", "0"}
 KNOWN_BACKENDS = ("sentence-transformers", "http", "hash")
@@ -117,7 +122,12 @@ class CachingBackend:
         self.cache_dir = Path(cache_dir)
         self.limit = limit
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self.cache_path = self.cache_dir / f"{getattr(backend, 'name', 'backend')}.json"
+        # The *model* is part of the cache identity. Vectors from one model are
+        # meaningless to another, so keying by the backend name alone would reuse
+        # stale vectors after HIL_EMBEDDING_MODEL changes - a silent mis-rank.
+        model = getattr(backend, "model_name", "") or "default"
+        tag = re.sub(r"[^A-Za-z0-9._-]", "_", model)
+        self.cache_path = self.cache_dir / f"{getattr(backend, 'name', 'backend')}--{tag}.json"
         self.store: dict[str, list[float]] = self._load()
 
     def _load(self) -> dict[str, list[float]]:
@@ -128,6 +138,8 @@ class CachingBackend:
         return data if isinstance(data, dict) else {}
 
     def _save(self) -> None:
+        if len(self.store) > MAX_CACHE_ENTRIES:
+            self.store = dict(list(self.store.items())[-MAX_CACHE_ENTRIES:])
         try:
             self.cache_path.write_text(json.dumps(self.store), encoding="utf-8")
         except OSError:
@@ -136,13 +148,17 @@ class CachingBackend:
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
         prepared = [text[: self.limit] for text in texts]
         keys = [hashlib.sha1(text.encode("utf-8")).hexdigest() for text in prepared]
-        missing = [index for index, key in enumerate(keys) if key not in self.store]
+        result: list[list[float] | None] = [self.store.get(key) for key in keys]
+        missing = [index for index, value in enumerate(result) if value is None]
         if missing:
             vectors = self.backend.embed([prepared[index] for index in missing])
             for index, vector in zip(missing, vectors):
+                result[index] = list(vector)
                 self.store[keys[index]] = list(vector)
             self._save()
-        return [self.store[key] for key in keys]
+        # Return what this call produced, independent of the cap: a value trimmed
+        # from the store must still be answered, not raise.
+        return [value if value is not None else [] for value in result]
 
 
 class SentenceTransformerBackend:

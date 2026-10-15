@@ -181,6 +181,61 @@ class RetrievalIntegrationTests(unittest.TestCase):
         self.assertIn("re-rank failed", result["retrieval"]["detail"])
 
 
+class CachingBackendTests(unittest.TestCase):
+    """The cache must key on the model and stay bounded (docs/roadmap.md §13)."""
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.temp.name)
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def test_cache_identity_includes_the_model(self) -> None:
+        a = embeddings.CachingBackend(
+            embeddings.SentenceTransformerBackend("model-a"), self.dir
+        )
+        b = embeddings.CachingBackend(
+            embeddings.SentenceTransformerBackend("model-b"), self.dir
+        )
+        self.assertNotEqual(a.cache_path, b.cache_path)
+
+    def test_vectors_are_reused_from_disk(self) -> None:
+        class Counting:
+            name = "counting"
+            model_name = "m"
+
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def embed(self, texts):
+                self.calls += 1
+                return [[float(len(text))] for text in texts]
+
+        backend = Counting()
+        first = embeddings.CachingBackend(backend, self.dir).embed(["alpha", "beta"])
+        second = embeddings.CachingBackend(backend, self.dir).embed(["alpha", "beta"])
+        self.assertEqual(first, second)
+        self.assertEqual(backend.calls, 1)  # the second call is served from disk
+
+    def test_cache_is_bounded(self) -> None:
+        original = embeddings.MAX_CACHE_ENTRIES
+        embeddings.MAX_CACHE_ENTRIES = 2
+        try:
+            class Stub:
+                name = "stub"
+                model_name = "m"
+
+                def embed(self, texts):
+                    return [[1.0] for _ in texts]
+
+            cached = embeddings.CachingBackend(Stub(), self.dir)
+            cached.embed(["a", "b", "c"])
+            self.assertLessEqual(len(cached.store), 2)
+        finally:
+            embeddings.MAX_CACHE_ENTRIES = original
+
+
 class FallbackSignalTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()

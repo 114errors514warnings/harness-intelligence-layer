@@ -365,7 +365,24 @@ def _entry_candidates(
     # highest in the file: an outright named identifier first, then the most
     # matched evidence, then the cheaper window on a tie.
     scored.sort(key=lambda item: (item[0], item[1], item[5] - item[6]), reverse=True)
-    chosen = scored[:MAX_WINDOWS]
+    chosen = list(scored[:MAX_WINDOWS])
+    # Phase 8.2: a symbol definition the query matched must not be dropped just
+    # because another window of the same file scored higher. Most `raw` misses were
+    # "file reached, symbol line not emitted", so allow one extra window when it is
+    # the only way to cover a matched symbol's own line.
+    if symbol_lines and not content_hits and len(chosen) < MAX_WINDOWS + 1:
+        covered = {line for entry in chosen for line in range(entry[5], entry[6] + 1)}
+        uncovered = [line for line in symbol_lines if line not in covered]
+        if uncovered:
+            best = max(
+                (entry for entry in scored if entry not in chosen),
+                key=lambda entry: sum(
+                    1 for line in uncovered if entry[5] <= line <= entry[6]
+                ),
+                default=None,
+            )
+            if best is not None and any(best[5] <= line <= best[6] for line in uncovered):
+                chosen.append(best)
     candidates = []
     for (
         named_hits, window_weight, score_hits, window_hits, nonblank, start, end,
