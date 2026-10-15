@@ -156,6 +156,19 @@ python benchmarks/ab_run.py --harness cline --arm native --out .hil/results/ab_c
 
 **已知环境坑**：Cline 启动 MCP 服务器时会把**含空格**的脚本路径拆开（日志 `can't open file 'D:\MY\My'`）。本机该卷未启用 8.3 短名，故用无空格路径的 `cmd` 包装器（`~/.hil-mcp/run.cmd`，内容为 `"<python>" "<repo>/run_hil_mcp.py" %*`），并把它填进 `cline_mcp_settings.json` 的 `hil.command`（`args` 置空）。修好后 Cline 可调用 `hil__get_project_context`。
 
+**选模型 / provider**：`--provider ollama --model deepseek-v4.1-flash` 走 Ollama Cloud（Pro 档，baseUrl `https://ollama.com`；key 存在 `providers.json` 的 `providers.ollama`）。不填则用 Cline 默认 provider。
+
+**必须隔离运行**：Cline 自带 `editor`，被测 agent 会修改工作树（见 `docs/roadmap.md` §11 的 D 问题 1）。做法是先建副本
+
+```powershell
+robocopy <repo> <tmp> /E /XD .git .hil __pycache__ .archify   # 保留 .ai-memory
+python benchmarks/ab_run.py --arm hil --root <tmp> --provider ollama --model deepseek-v4.1-flash --jobs 6
+```
+
+`--root` 会把 Cline 的 `-c` 与 hil 的 `HIL_PROJECT_ROOT` 都指向副本，真实仓库不再被改。副本无 `.git`，因此该次 A/B 中 Git recency 不生效（两臂一致）。
+
+**题面必须以 ASCII 结尾**：题面经 argv 传给 cline，若以**非 ASCII 字符结尾会被偶发截断**（native 臂曾因此 21/50 失败：`Unknown command or unquoted prompt`）。运行器给两臂统一追加 `ANSWER_TAIL`（一句 ASCII 尾注）以保证对称；自建调用链应改为把题面写入文件或走 stdin。
+
 判定：
 
 ```powershell
@@ -203,7 +216,7 @@ python benchmarks/verify.py --write-baseline             # 有意改变检索后
 - Phase 3 就绪：判定机制已就绪（随机分组 + seed、五道门槛、工具结果与 prompt-cache 记录、跨 Harness 复用回执），见 `docs/roadmap.md` §5「Phase 3 就绪状态」；`hinted` 召回已达标，HIL 臂具备采集条件；
 - Phase 4 证据门：已建立（`evidence.py`），可选语义重排已实现并默认为关，见 §8；
 - 回归门：已建立（`verify.py` + `results/baseline.json`），并接入 CI；本轮为**有意的检索改动**，基线已用 `--write-baseline` 重录；
-- 原生执行基线：**OpenClaw 侧已完成**（`ab.jsonl` 为 50 行且 native/hil 两臂均已填）；Cline/Codex 侧待补。**数据未齐前仍不得宣称任何固定的 token 节省比例**（`--compare` 在数据不可追溯时以退出码 3 拒绝输出）。
+- 原生执行基线：**OpenClaw 与 Cline 两侧均已完成**（`ab.jsonl` 共 **100** 行，native/hil 两臂均已填；`success` 由自动评委 `deepseek-v4.1-flash` 按 `success_criteria` 判定，宜抽检）；Codex 侧未做。**不得把 token 下降单独归因于检索质量**（HIL 臂被要求先取上下文），也**不得宣称召回门槛通过**（`raw` 69.5% < 90%，`--compare` 退出码 1）。
 
 > 基线说明：本轮是**有意的检索改动**，因此基线用 `--write-baseline` 重录并随提交一起 review——这是唯一允许改写基线的路径。此前记录的"改文档会移动召回数值"现象仍然成立：被引用的源码与文档本身都在索引里，所以继续编辑本文档也会让数值在 8pp 容差内小幅漂移。
 

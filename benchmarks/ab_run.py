@@ -40,6 +40,13 @@ HIL_INSTRUCTION = (
     "text above as its `task` argument, then answer using the returned package."
 )
 
+#: A neutral ASCII tail applied to **both** arms. The harness CLI receives the task
+#: as a command-line argument, and a prompt that ends in a non-ASCII character is
+#: intermittently mangled on Windows (observed as "Unknown command or unquoted
+#: prompt" on ~40% of the native arm, while the HIL arm - whose prompt already ended
+#: in ASCII - never failed). The same tail on both arms keeps the comparison fair.
+ANSWER_TAIL = "\n\nAnswer concisely and cite the file paths you relied on."
+
 
 def load_tasks(path: Path, limit: int, task_ids: list[str]) -> list[dict]:
     tasks = []
@@ -53,8 +60,12 @@ def load_tasks(path: Path, limit: int, task_ids: list[str]) -> list[dict]:
     return tasks[:limit] if limit else tasks
 
 
-def set_hil(enabled: bool) -> None:
-    """Toggle the ``hil`` MCP server for Cline, keeping a one-time backup."""
+def set_hil(enabled: bool, project_root: Path | None = None) -> None:
+    """Toggle the ``hil`` MCP server for Cline, keeping a one-time backup.
+
+    ``project_root`` also repoints the server's ``HIL_PROJECT_ROOT`` so an isolated
+    run queries the copy it is actually working in, not the real checkout.
+    """
     payload = json.loads(CLINE_SETTINGS.read_text(encoding="utf-8"))
     servers = payload.get("mcpServers", {})
     if "hil" not in servers:
@@ -63,6 +74,8 @@ def set_hil(enabled: bool) -> None:
     if not backup.exists():
         shutil.copyfile(CLINE_SETTINGS, backup)
     servers["hil"]["disabled"] = not enabled
+    if project_root is not None:
+        servers["hil"].setdefault("env", {})["HIL_PROJECT_ROOT"] = str(project_root)
     CLINE_SETTINGS.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -100,7 +113,11 @@ def _parse(stdout: str) -> tuple[dict, Counter, str]:
 
 
 def run_cline(
-    prompt: str, model: str, provider: str, timeout: int = DEFAULT_TIMEOUT_SECONDS
+    prompt: str,
+    model: str,
+    provider: str,
+    timeout: int = DEFAULT_TIMEOUT_SECONDS,
+    root: Path | None = None,
 ) -> tuple[dict, Counter, str, str]:
     """Run one turn, retrying once: return ``(usage, tools, text, error)``.
 
@@ -108,7 +125,9 @@ def run_cline(
     point, so an attempt with no ``run_result`` is retried once and, if it still
     fails, the row carries the error instead of being counted.
     """
-    command = ["node", str(CLINE_BIN), "--json", "-c", str(ROOT), "--thinking", "none"]
+    command = [
+        "node", str(CLINE_BIN), "--json", "-c", str(root or ROOT), "--thinking", "none"
+    ]
     if provider:
         command += ["-P", provider]
     if model:
@@ -148,20 +167,29 @@ def main() -> int:
     parser.add_argument("--provider", default="")
     parser.add_argument("--jobs", type=int, default=4, help="concurrent runs")
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_SECONDS)
+    parser.add_argument(
+        "--root",
+        default="",
+        help="working tree the harness runs in (an isolated copy, so it cannot "
+        "mutate the real checkout)",
+    )
     args = parser.parse_args()
     if args.harness != "cline":
         raise SystemExit("only the cline harness is wired up so far")
 
     tasks = load_tasks(Path(args.tasks), args.limit, [i for i in args.ids.split(",") if i])
+    root = Path(args.root).resolve() if args.root else ROOT
     out = Path(args.out)
     if not out.is_absolute():
         out = ROOT / out
     out.parent.mkdir(parents=True, exist_ok=True)
 
     def measure(task: dict) -> dict:
-        prompt = task["prompt"] + (HIL_INSTRUCTION if args.arm == "hil" else "")
+        prompt = task["prompt"] + ANSWER_TAIL
+        if args.arm == "hil":
+            prompt += HIL_INSTRUCTION
         usage, tools, text, error = run_cline(
-            prompt, args.model, args.provider, args.timeout
+            prompt, args.model, args.provider, args.timeout, root
         )
         return {
             "id": task["id"],
@@ -192,7 +220,7 @@ def main() -> int:
     rows: list[dict] = []
     # The hil toggle is per arm, not per task, so runs within one arm are
     # independent and can safely overlap.
-    set_hil(args.arm == "hil")
+    set_hil(args.arm == "hil", root)
     try:
         if args.jobs > 1:
             with ThreadPoolExecutor(max_workers=args.jobs) as pool:
@@ -207,7 +235,7 @@ def main() -> int:
                 rows.append(row)
                 report(index, row)
     finally:
-        set_hil(True)
+        set_hil(True, root)
     rows.sort(key=lambda row: row["id"])
 
     out.write_text(

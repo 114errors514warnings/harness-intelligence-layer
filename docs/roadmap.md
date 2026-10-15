@@ -31,7 +31,7 @@
 - `benchmarks/tasks.jsonl`：**已完成**，Phase 0 时 26 条、后扩建到 **50 条**真实任务，按单文件、跨模块、故障定位、架构问答分类，逐条标注必须召回的文件、符号与成功判据；
 - token 与任务成功率统计脚本：**已完成**，`benchmarks/measure.py`（HIL 侧召回、包体积、延迟、重复片段；A/B 表校验与门槛判定）；
 - 可重复的对照实验说明：**已完成**，`benchmarks/README.md`；
-- 原生执行基线：**OpenClaw 侧已完成**（`ab.jsonl` 50 行已填）；Cline/Codex 侧待 Phase 3（D）。A/B 表未填写完整时，脚本仍会拒绝输出任何节省比例（退出码 3）。
+- 原生执行基线：**OpenClaw 与 Cline 两侧均已填**（`ab.jsonl` 共 **100** 行，见 §5/§11）；Codex 侧未做。A/B 表未填写完整时，脚本仍会拒绝输出任何节省比例（退出码 3）。
 
 已完成测量（HIL 侧，26 题 × 1500 token 预算，索引 schema 2，26 个文件 / 182 个符号；下表是 **Phase 0 当时的 V0.1 词法检索**，Phase 2 修正后的当前值见 §4）：
 
@@ -280,7 +280,7 @@
 |---|---|---|
 | 词法 Recall 不达标 → Embedding + Reranker | `results/baseline.json` 的两变体召回 | **FIRED**：`hinted` 98.5% 已达 90% 门槛，但 `raw` 70.5% 仍低于门槛（跨语言缺口）。**2026-10-14 已量化**：真实多语言重排（`intfloat/multilingual-e5-small`）`raw` 70.8% → 71.8%（+1.0pp）、`hinted` 不回退，但 p50 ≈ 3.7 s / p95 ≈ 4.3 s **超 1 s 门槛**，故保持可选、默认关闭（见 §7.4） |
 | 代码修改质量不可统一比较 → Unified Validator | `results/quality.json`（人工判定的修改集合） | 未举证：尚无该文件（已移入 §10.4：先定义质量与判定集，再据证据决定是否实施） |
-| ≥100 个可比任务结果 → Model Router | `results/ab.jsonl` 已填写的行数 | 未触发：0 条 |
+| ≥100 个可比任务结果 → Model Router | `results/ab.jsonl` 已填写的行数 | **FIRED（2026-10-15）**：已填 **100 条**（OpenClaw 50 + Cline 50）。`evidence.py` 现报 FIRED；触发只表示证据出现，不代表必须开工 |
 | 本地检索成为瓶颈 → FAISS / Qdrant | `.hil/results/` 最新报告的 p95 延迟 | 未举证：p95 约 80–120 ms，远低于 1000 ms |
 
 触发条件①的缺口现在只剩 `raw`（跨语言），具体优化方案见 §7 **Phase 5**——先做轻量、可审计的跨语言桥（7.1 术语表 / 7.2 语料自举），只有它们仍不足时才回到本条引入模型。已实现的**可选**语义重排（`src/harness_intelligence/embeddings.py`）是这条重解法的管道：
@@ -434,7 +434,7 @@
 ## 9. 下一步优先级
 
 1. **已完成**：三轮检索修正 + Phase 5 的第一步。第一轮——中文词项切分（连续中文串拆为 2/3 字 n-gram）与文档片段排序（片段级评分 + 受 token 上限约束且互不重叠的窗口）。第二轮（2026-10-11）——路径匹配精确化、文件级加成不再被窗口体积稀释、点名的标识符窗口优先发射、每文件一个窄窗口以覆盖更多文件。第三轮（同日晚，由 A/B 失败题推动）——点名标识符窗口优先于密度、模块常量纳入符号、`INDEX_VERSION` 升到 3。第四轮（2026-10-12，Phase 5 §7.1）——查询侧中英术语桥（`glossary.py`），只做可达性、不参与排序。结果：26 题上 `raw` 26.9% → 47.8%、`hinted` 65.7% → 69.9% → 96.2%；扩到 **50 题**后 `raw` 50.8%、`hinted` 98.5%；术语桥后 `raw` → **70.5%**、`hinted` 保持 98.5%。`hinted` 已达 90% 退出标准；**Phase 3 的召回门槛在以 `raw` 为输入的正式对照下失败**（§5），跨语言缺口是当前第一优先。基线已随改动 `--write-baseline` 重录，完整验证见 §4。
-2. **OpenClaw 侧已完成**：50 题 × 2 臂真实对照（§5）。**注意结论是召回门槛失败**：中位 token 下降 43.1% PASS、成功率 100%→100% PASS、平均重试 0→0 PASS、跨 Harness 复用 2/2 PASS，但以运行口径（`raw` 纯中文提问）计 **Context Recall 50.8% < 90%，FAIL**，`--compare` 退出码 1，**Phase 3 未通过**。要达到 Model Router 的 100 条可比结果门槛，还需**第二个 Harness**（Cline/Codex）再补至少 50 条——这是当前比整体推进 Phase 4 更高优先级的动作。
+2. **两个 Harness 的 50 题 × 2 臂真实对照已完成**：OpenClaw（§5）+ Cline（§11 D）。`ab.jsonl` 达 **100 条**，§6 ③ Model Router 触发随之 **FIRED**。判定：**召回门槛仍 FAIL**（`raw` 69.5% < 90%），token/成功率/重试/复用四项 PASS，`--compare` 退出码 1。跨语言缺口仍是第一优先（§7）。
 3. 汇总未召回文件、重复片段和无关上下文（脚本已输出这些字段）。
 4. `hinted` 召回已达 90%（98.5%），"是否投入 Tree-sitter 与增量索引"的决策点已经到达。**现有证据仍提示 Tree-sitter 解决不了剩余缺口**：未召回的不是"符号没被提取"，而是纯中文提问与英文实现之间缺少词面重叠（§4）。
 5. **Phase 5（跨语言召回，§7）**：7.1 术语桥**已完成**（`raw` 50.8% → **70.5%**，`hinted` 零回退）；下一步 7.2 语料自举双语词典。只有两者仍不足，才回到 Phase 4 ① 引入可选多语言模型（需能安装模型）。
@@ -559,7 +559,7 @@ Phase 4 §6 ② 的进入条件是"代码修改质量无法统一比较"，`evid
 - **A（最终复测）✅**：受控记忆库下 **raw 73.3%/22、hinted 98.0%/48**，`hinted` 零回退。相对改动前（同语料 HEAD 代码：raw 68.8%/19、hinted 98.0%/48），raw **+4.5pp / +3 题**。`verify.py` 本地仅 §10.1 记忆库漂移 FAIL；CI 无 `.ai-memory` 不受影响。
 - **C（roadmap 入清单）✅**：§7.2a 已写入 §7、§4 结构项记录、§9 第 7 条。
 - **B（文档一致性）✅**：§10.3 的历史矛盾已修正；本轮新结论已回写到 §4/§6/§7 与各文档。
-- **D（第二/第三 Harness 对照）⏸ 已暂停**：选定 **Cline**。HIL 臂 **50/50 完成**（`.hil/results/ab_cline_full_hil.jsonl`，`hil_called` 50/50、0 错误）；native 臂跑到 4/50 后按用户要求停止，**未产出文件**。自动化运行器 `benchmarks/ab_run.py`（含 `--jobs` 并行、`--timeout`、重试与错误捕获）；运行手册见 `benchmarks/README.md` §5.1。
+- **D（第二 Harness 对照）✅ 已完成（Cline 侧，2026-10-15）**：选定 **Cline**，切到 **Ollama Cloud/Pro 的 `deepseek-v4.1-flash`**（`--provider ollama --model deepseek-v4.1-flash`，baseUrl `https://ollama.com`），并**在隔离副本中运行**（`--root` + `robocopy` 排除 `.git`/`.hil`），以免被测 agent 修改真实仓库。两臂 × 50 题已采集完成（`.hil/results/ab_ollama_fixed_{hil,native}.jsonl`，0 错误）。上一轮用 `deepseek-v4-flash-vision-exp` 采的数据因换模型**作废**。运行器 `benchmarks/ab_run.py`（`--jobs`/`--timeout`/`--root`/重试）、评委 `benchmarks/judge_success.py`；运行手册见 `benchmarks/README.md` §5.1。
 
 #### D 遇到的问题（2026-10-14，必须记录）
 
@@ -569,5 +569,28 @@ Phase 4 §6 ② 的进入条件是"代码修改质量无法统一比较"，`evid
 4. **孤儿进程**：异常退出的运行会残留未清理的 `run_hil_mcp.py`（本次清理了 6 个）。
 5. **已做的缓解**：运行器新增 `--jobs`（并发 6）与 `--timeout`；停止后已恢复 Cline 配置（`hil`/`scenario` 均启用，`hil` 用无空格包装器）。
 
-**尚未完成**：native 臂未跑完；`success` 未判定；`ab.jsonl` 仍为 **50 条**（未达 ≥100）。
+**2026-10-15 重跑结果（Cline + Ollama Pro `deepseek-v4.1-flash`，隔离副本，两臂 × 50 题，0 错误）**：
+
+| 臂 | n | 错误 | 调用 hil | 输入 token p50 | mean | max | 输出 mean |
+|---|---|---|---|---|---|---|---|
+| HIL | 50 | 0 | 49/50 | **244,045** | 347,234 | 1,634,151 | 4,214 |
+| native | 50 | 0 | 0/50 | **370,581** | 420,571 | 2,469,759 | 4,408 |
+
+配对 50 题：**中位输入 token 降低 34.1%**（mean 17.4%）。原始数据：`.hil/results/ab_ollama_fixed_{hil,native}.jsonl`。
+
+**注意偏差**：该下降**不能归因于检索质量**——HIL 臂被要求先取上下文（调用差异），与 OpenClaw 首次 A/B 同一问题（§5/§9）；且 `success` 尚未判定，token 数字本身不能说明任务完成质量。
+
+**2026-10-15 判定（`--compare`，`ab.jsonl` **100 条**：OpenClaw 50 + Cline 50）**：
+
+| 门槛 | 结果 | 判定 |
+|---|---|---|
+| 中位输入 token 降低 ≥ 20% | **32.2%** | PASS |
+| 成功率下降 ≤ 2pp | native 96.0% → hil 95.0%（**1.0pp**） | PASS |
+| Context Recall ≥ 90% | **69.5%**（`raw` 口径） | **FAIL** |
+| 平均重试不增加 | 0→0 | PASS |
+| 跨 Harness 复用 | 2/2 | PASS |
+
+`--compare` **退出码 1**：与首次一致，**Phase 3 仍只卡在召回门槛**。`ab.jsonl` 现已 100 条，§6 ③ Model Router 触发条件随之 **FIRED**。
+
+**方法学声明**：① Cline 的 `success` 由**自动评委**（`deepseek-v4.1-flash`，见 `benchmarks/judge_success.py`，按每题 `success_criteria`）判定，非人工，宜抽检；② HIL 臂被要求"先取上下文"（调用差异），故 token 下降**不能单独归因于检索质量**；③ 两 Harness 用了不同模型（OpenClaw `deepseek-v4-flash`、Cline `deepseek-v4.1-flash`），已在 `--compare` 的 `models seen` 中记录。
 
