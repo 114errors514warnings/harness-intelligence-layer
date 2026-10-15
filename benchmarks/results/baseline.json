@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-15T10:35:22+00:00",
+  "generated_at": "2026-10-15T14:42:32+00:00",
   "hil_version": "0.1.0",
   "index_schema_version": 3,
   "token_budget": 1500,
@@ -13,12 +13,12 @@
       "perfect_recall_tasks": 23,
       "tasks_meeting_target_recall": 23,
       "target_recall_pct": 90.0,
-      "median_package_tokens": 1481,
-      "mean_package_tokens": 1441.1,
+      "median_package_tokens": 1478,
+      "mean_package_tokens": 1436.7,
       "token_budget": 1500,
-      "p50_latency_ms": 191.8,
-      "p95_latency_ms": 213.6,
-      "max_latency_ms": 407.6,
+      "p50_latency_ms": 266.8,
+      "p95_latency_ms": 288.8,
+      "max_latency_ms": 622.1,
       "duplicate_pairs": 0,
       "duplicate_tokens": 0,
       "index_refresh_events": 0,
@@ -63,17 +63,17 @@
     "hinted": {
       "tasks": 50,
       "tasks_with_recall_criteria": 50,
-      "mean_recall_pct": 97.5,
+      "mean_recall_pct": 97.0,
       "min_recall_pct": 50.0,
-      "perfect_recall_tasks": 47,
-      "tasks_meeting_target_recall": 47,
+      "perfect_recall_tasks": 46,
+      "tasks_meeting_target_recall": 46,
       "target_recall_pct": 90.0,
-      "median_package_tokens": 1478,
-      "mean_package_tokens": 1470.7,
+      "median_package_tokens": 1477,
+      "mean_package_tokens": 1469.5,
       "token_budget": 1500,
-      "p50_latency_ms": 197.4,
-      "p95_latency_ms": 228.2,
-      "max_latency_ms": 235.3,
+      "p50_latency_ms": 268.6,
+      "p95_latency_ms": 302.7,
+      "max_latency_ms": 305.9,
       "duplicate_pairs": 0,
       "duplicate_tokens": 0,
       "index_refresh_events": 0,
@@ -86,7 +86,8 @@
         "docs/overview.md"
       ],
       "symbols_never_recalled": [
-        "DEFAULT_EXCLUDES"
+        "DEFAULT_EXCLUDES",
+        "PATH_PREFIX_MIN"
       ]
     }
   },

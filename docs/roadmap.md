@@ -635,7 +635,7 @@ Phase 4 §6 ② 的进入条件是"代码修改质量无法统一比较"，`evid
 目标（按证据优先级；每项都要 `measure.py` 的 `raw`/`hinted` 前后对照 + `verify.py` 全绿）：
 
 - [x] **8.1 修向量缓存的关键 bug（完成）**：缓存路径/键现包含 `model_name`（`<backend>--<model>.json`），并加 `MAX_CACHE_ENTRIES=20000` 上限；`embed()` 返回本次计算结果，不受裁剪影响。+3 单测（模型区分 / 磁盘复用 / 上限）。
-- [x] **8.2 保证"命中符号的定义窗口"被发射（完成）**：所选窗口未覆盖已匹配符号的定义行时，允许**多发一个窗口**（≤ `MAX_WINDOWS+1`）。**无条件**版让 `raw` +2.5pp 但 `hinted` −3.5pp；**门控到"无字面命中的文件"**（与 §7.2a 同原则）后：基线 `raw` **74.3%**（原 71.8%，**+2.5pp**）、`hinted` **97.5%**（不回退），中位包体积几乎不变、重复片段 0。基线已随之 `--write-baseline` 重录。
+- [x] **8.2 保证"命中符号的定义窗口"被发射（完成）**：所选窗口未覆盖已匹配符号的定义行时，允许**多发一个窗口**（≤ `MAX_WINDOWS+1`）。**无条件**版让 `raw` +2.5pp 但 `hinted` −3.5pp；**门控到"无字面命中的文件"**（与 §7.2a 同原则）后：`raw` **71.8% → 74.3%**、`hinted` **不回退**，中位包体积几乎不变、重复片段 0。基线已随之 `--write-baseline` 重录。
 - [x] **8.3 换更强的 embedding 模型（完成：结论不采纳）**：改用**硅基流动 HTTP 后端**（`--embedding http` + `HIL_EMBEDDING_URL=https://api.siliconflow.cn/v1`、`HIL_EMBEDDING_MODEL=BAAI/bge-m3`）实测：`raw` **74.8%**（词法 74.3%，仅 **+0.5pp**）、`hinted` 97.0%（−0.5pp，噪声内）。热缓存 p50 534 ms / p95 578 ms（无本地模型加载），成本约一轮 0.4 M token（可忽略）。**结论：更强的 embedding 也没用**——因为当前是"对词法 top-40 再重排"，**重排无法补回初筛已经漏掉的候选**；瓶颈在**一阶段召回**，不在排序模型。
 - [x] **8.4 freshness 检查走 `os.walk` —— 已评估，不做**：`os.walk` 实测 2 ms vs ripgrep 启动 ≈134 ms，但让 freshness 走与建索引**不同**的枚举路径会因 `.gitignore` 语义差异造成指纹永不匹配→反复重建；当前 p95 ≈240 ms ≪ 1 s，收益不抵风险（与 §4 的既有裁决一致）。若将来要做，必须同时让两条路径的忽略语义完全一致。
 - [x] **8.7 `confidence: low` 的调用侧兜底（完成）**：`skills/hil-project-knowledge/SKILL.md` 明确要求"`sufficient: false` 回退原生搜索；`confidence: low` 视为弱 shortlist 并先核实"，并把召回数字更新为当前值（`hinted` ≈97%、`raw` ≈74%）。

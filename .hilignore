@@ -18,3 +18,10 @@ _tmp/
 # is excluded for.
 .archify/
 docs/architecture/
+
+# The final report is a *measurement product*: a summary of numbers produced by
+# the benchmark, restating them in prose with many identifiers. Leaving it in the
+# corpus would let the write-up of the measurements compete with the code the
+# measurements are about - the same rule benchmarks/results/ follows. Measured
+# on 2026-10-15: adding it moved hinted recall by 2.5pp.
+docs/final-report.md
