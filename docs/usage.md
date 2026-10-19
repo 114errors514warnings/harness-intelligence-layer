@@ -518,8 +518,10 @@ python tools/hil_dashboard.py --root D:\MY --window 14
 |---|---|
 | **Cline（VS Code 扩展）** | **不要**设 `HIL_PROJECT_ROOT`：服务器继承工作区 cwd，自动跟随当前项目 |
 | **Cline CLI** | `-c <项目>` **只改变 agent 的工作区，不改变 MCP 子进程的 cwd**（已实测）。要 `cd` 到项目目录再启动，或让模型显式传 `project_root` |
-| **OpenClaw** | 其配置里 `HIL_PROJECT_ROOT` 与 `cwd` 都指向一个仓库；只在那个仓库用 HIL 就保持，否则去掉这两项并确认网关 cwd 是目标项目 |
+| **OpenClaw** | 网关是**长驻进程、cwd 固定**，不能靠 cwd 跟随项目。推荐**显式传 `project_root`**；本机已把 `hil` 的 `cwd` 指向 `~/.openclaw/workspace`（非项目目录），因此漏传时会**明确报错**，而不是静默查错仓库 |
 | **OpenCode** | 不设 `HIL_PROJECT_ROOT`（只设 `HIL_DENYLIST_FILE`），跟随工作区 cwd |
+
+**兜底行为**：没有 `HIL_PROJECT_ROOT` 时，只有当进程 cwd **看起来像一个项目**（含 `.git` / `.hil` / `pyproject.toml` / `package.json` / `project.godot` 等标记）才会用它；否则直接报 `no project root: set HIL_PROJECT_ROOT or pass project_root explicitly`。宁可不回答，也不要拿另一个仓库的片段冒充答案。
 
 **自检方法**：在项目里调用一次 `index_project`（不带参数），看返回的 `root` 是不是当前项目；或读该项目 `.hil/hil-status.md`。
 

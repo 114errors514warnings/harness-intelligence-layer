@@ -9,8 +9,32 @@ from .policy import ensure_allowed
 from .retrieval import get_project_context as build_context
 
 
+#: Files/directories that mark a directory as a project people work in. Used only to
+#: decide whether the process cwd is a safe fallback when HIL_PROJECT_ROOT is unset.
+PROJECT_MARKERS = (
+    ".git", ".hil", "pyproject.toml", "package.json", "project.godot",
+    "Cargo.toml", "go.mod", "pom.xml", "build.gradle", "CMakeLists.txt",
+)
+
+
 def _default_root() -> str:
-    return os.environ.get("HIL_PROJECT_ROOT", str(Path.cwd()))
+    """The project a tool call targets when the caller passes no ``project_root``.
+
+    Order: ``HIL_PROJECT_ROOT``, then the process cwd **if it looks like a project**.
+    A harness that runs its MCP server from a fixed directory would otherwise make
+    every project silently read the same repository; an explicit error is far easier
+    to act on than a package that quietly describes the wrong tree.
+    """
+    configured = os.environ.get("HIL_PROJECT_ROOT", "").strip()
+    if configured:
+        return configured
+    cwd = Path.cwd()
+    if any((cwd / marker).exists() for marker in PROJECT_MARKERS):
+        return str(cwd)
+    raise ValueError(
+        "no project root: set HIL_PROJECT_ROOT or pass project_root explicitly "
+        f"(the working directory {cwd} does not look like a project)"
+    )
 
 
 def create_server():
