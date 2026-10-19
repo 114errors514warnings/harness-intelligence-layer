@@ -13,6 +13,8 @@
 
 参见 [项目总览](docs/overview.md)、[项目计划（含各阶段与待做项）](docs/roadmap.md)、[使用说明](docs/usage.md)和[**最终报告**](docs/final-report.md)。
 
+快速打开本机各项目的 HIL 仪表盘：双击 `open_dashboard.bat`（会先刷新数据再打开 `.hil/dashboard.html`；`open_dashboard.bat --open-only` 只打开不刷新）。
+
 ## 当前 V0.1
 
 已提供四个 MCP 工具，接口保持精简：

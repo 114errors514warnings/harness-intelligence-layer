@@ -502,6 +502,16 @@ python tools/hil_dashboard.py --root D:\MY --window 14
 
 输出是**单文件 HTML**（内联 CSS、无 JS、无外部资源），包含：项目/文件/符号/记忆数、近 7 天调用、延迟 p50/p95、平均包 token、回退率、low-confidence 比例、语义占比，以及近 14 天的调用趋势。
 
+在仓库根目录双击 **`open_dashboard.bat`** 即可：它会先刷新数据再打开 `.hil/dashboard.html`。参数：
+
+```bat
+open_dashboard.bat                         :: 刷新并打开
+open_dashboard.bat --open-only             :: 只打开（不重新扫描）
+open_dashboard.bat --root D:\MY --window 14  :: 透传给 tools/hil_dashboard.py
+```
+
+设置 `HIL_DASHBOARD_NO_OPEN=1` 可只渲染不弹浏览器（便于脚本化）。
+
 ## 让 HIL 指向正确的项目（重要）
 
 `project_root` 的解析顺序是：
