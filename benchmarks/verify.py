@@ -655,6 +655,8 @@ def controlled_memory(path: str):
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Benchmark runs are not usage: keep them out of the per-project metrics.
+    os.environ.setdefault("HIL_METRICS", "off")
     parser = argparse.ArgumentParser(description="Verify HIL phase invariants and gates")
     parser.add_argument("--root", default=str(PROJECT_ROOT), help="project to verify")
     parser.add_argument("--tasks", default=str(DEFAULT_TASKS), help="task corpus jsonl")

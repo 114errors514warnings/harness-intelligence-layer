@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import metrics
 from .embeddings import CachingBackend, cosine, resolve_backend
 from .glossary import expand_terms
 from .history import recent_paths
@@ -481,6 +483,7 @@ def get_project_context(
     """
     if token_budget < 200:
         raise ValueError("token_budget must be at least 200")
+    started = time.perf_counter()
     root = Path(project_root).resolve()
     index = load_index(root, refresh=refresh_index)
     primary, expansions = split_terms(task)
@@ -643,6 +646,19 @@ def get_project_context(
             f" WARNING: index is stale ({index_status['stale_reason']}); "
             "results may miss files - re-run index_project."
         )
+    # Local, privacy-preserving usage counters (no query text); disabled by env and
+    # never allowed to break the call.
+    metrics.record(
+        root,
+        latency_ms=(time.perf_counter() - started) * 1000,
+        fragments=len(selected),
+        tokens=used,
+        memories=len(memories),
+        mode=retrieval["mode"],
+        confidence=confidence,
+        sufficient=sufficient,
+        reranked=retrieval.get("reranked", 0),
+    )
     return {
         "task": task,
         "project_root": str(root),

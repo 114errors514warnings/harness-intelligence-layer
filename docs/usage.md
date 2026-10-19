@@ -485,3 +485,19 @@ efresh_index=False，绝不顺手重建别人的索引；索引漂移只**报告
 - 唯一写入的是报告文件本身，而 .hil/ 已被两条发现路径排除，不会改变任何项目的索引。
 - 报告含：索引时间/文件数/符号数/新鲜度、记忆库统计（**只计数，不含正文**）、固定探针的连通性结果、配置、结论与可执行建议。
 - 默认跳过临时目录（%TEMP% 下的测试与 A/B 草稿树），也不会进入某个项目内部再找嵌套项目。
+
+## Dashboard（	ools/hil_dashboard.py）
+
+在 hil_status 的快照之上，加一层**调用侧的轻量指标**：每次 get_project_context 追加一行到 <项目>/.hil/metrics.jsonl。
+
+- **不含**查询文本、文件内容或记忆正文——只有延迟、片段数、token、模式、confidence、是否回退。
+- HIL_METRICS=off 可关闭；任何写入失败都被吞掉，**不影响检索**；文件超过 5 MB 轮转、保留一代。
+- 基准脚本（measure.py / erify.py）与状态探针都会自动关闭它，所以仪表盘只反映**真实调用**。
+
+`powershell
+src = src
+python tools/hil_dashboard.py                       # 写 <HIL>/.hil/dashboard.html
+python tools/hil_dashboard.py --root D:\MY --window 14
+`
+
+输出是**单文件 HTML**（内联 CSS、无 JS、无外部资源），包含：项目/文件/符号/记忆数、近 7 天调用、延迟 p50/p95、平均包 token、回退率、low-confidence 比例、语义占比，以及近 14 天的调用趋势。

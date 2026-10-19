@@ -153,12 +153,20 @@ def inspect(root: Path) -> dict:
 
     facts["memory"] = memory_summary(project)
 
+    # The probe is a status check, not usage: keep it out of the per-project metrics.
+    previous_metrics = os.environ.get("HIL_METRICS")
+    os.environ["HIL_METRICS"] = "off"
     try:
         result = get_project_context(PROBE, project, PROBE_BUDGET, refresh_index=False)
     except Exception as exc:  # noqa: BLE001 - a broken project must still get a report
         facts["probe_error"] = f"{exc.__class__.__name__}: {exc}"
         facts["issues"].append(f"检索探针抛错（{exc.__class__.__name__}）：{exc}")
         return facts
+    finally:
+        if previous_metrics is None:
+            os.environ.pop("HIL_METRICS", None)
+        else:
+            os.environ["HIL_METRICS"] = previous_metrics
     facts["probe_fragments"] = len(result.get("fragments", []))
     facts["probe_tokens"] = result.get("estimated_tokens", 0)
     facts["probe_memories"] = len(result.get("memories", []))

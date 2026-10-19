@@ -23,6 +23,7 @@ HIL 是一个**跨 Harness 共享的项目上下文与工程记忆层**，V0.1 �
 | 工程记忆 | 目标项目内的 JSON 事实库，跨 Harness 共享 |
 | 评测与门 | `benchmarks/tasks.jsonl`（50 题）· `measure.py` · `verify.py` · `evidence.py` · 回归基线 · GitHub Actions CI |
 | A/B 基础设施 | `ab_run.py`（跑真实 Harness 臂）· `judge_success.py`（按 `success_criteria` 判定）· 100 条可比结果 |
+| 运维 | `tools/hil_status.py`（每个项目写入 `.hil/hil-status.md`）· `tools/hil_dashboard.py`（本机各项目调用仪表盘，单文件 HTML） |
 | 文档 | `README.md` · `docs/overview.md` · `docs/roadmap.md` · `docs/usage.md` · `benchmarks/README.md` |
 
 ---
