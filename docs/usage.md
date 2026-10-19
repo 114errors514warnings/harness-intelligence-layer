@@ -501,3 +501,26 @@ python tools/hil_dashboard.py --root D:\MY --window 14
 `
 
 输出是**单文件 HTML**（内联 CSS、无 JS、无外部资源），包含：项目/文件/符号/记忆数、近 7 天调用、延迟 p50/p95、平均包 token、回退率、low-confidence 比例、语义占比，以及近 14 天的调用趋势。
+
+## 让 HIL 指向正确的项目（重要）
+
+`project_root` 的解析顺序是：
+
+1. 调用参数里的 `project_root`（最高优先）；
+2. 环境变量 `HIL_PROJECT_ROOT`；
+3. **MCP 服务器进程的 cwd**（兜底）。
+
+因此一个**全局**的 `HIL_PROJECT_ROOT` 会把**所有项目**都钉到同一个根上——在别的项目里调用 HIL 时，它读写的其实是那个被钉住的仓库，索引与记忆都"看起来没动"。这是"某个项目几乎没调用过 HIL"最常见的原因。
+
+按 Harness 的正确接法：
+
+| Harness | 建议 |
+|---|---|
+| **Cline（VS Code 扩展）** | **不要**设 `HIL_PROJECT_ROOT`：服务器继承工作区 cwd，自动跟随当前项目 |
+| **Cline CLI** | `-c <项目>` **只改变 agent 的工作区，不改变 MCP 子进程的 cwd**（已实测）。要 `cd` 到项目目录再启动，或让模型显式传 `project_root` |
+| **OpenClaw** | 其配置里 `HIL_PROJECT_ROOT` 与 `cwd` 都指向一个仓库；只在那个仓库用 HIL 就保持，否则去掉这两项并确认网关 cwd 是目标项目 |
+| **OpenCode** | 不设 `HIL_PROJECT_ROOT`（只设 `HIL_DENYLIST_FILE`），跟随工作区 cwd |
+
+**自检方法**：在项目里调用一次 `index_project`（不带参数），看返回的 `root` 是不是当前项目；或读该项目 `.hil/hil-status.md`。
+
+> 事故记录（2026-10-15）：一次 A/B 运行把 `HIL_PROJECT_ROOT` 临时指向隔离副本，恢复时误把副本路径写了回去，导致 Cline 之后一直在查一个临时目录。`benchmarks/ab_run.py` 已改为**精确恢复运行前的 env**。

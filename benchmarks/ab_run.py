@@ -82,11 +82,20 @@ def load_tasks(path: Path, limit: int, task_ids: list[str]) -> list[dict]:
     return tasks[:limit] if limit else tasks
 
 
-def set_hil(enabled: bool, project_root: Path | None = None) -> None:
+def read_hil_env() -> dict:
+    """The ``hil`` server's env exactly as configured now."""
+    payload = json.loads(CLINE_SETTINGS.read_text(encoding="utf-8"))
+    return dict(((payload.get("mcpServers") or {}).get("hil") or {}).get("env") or {})
+
+
+def set_hil(enabled: bool, project_root: Path | None = None, base_env: dict | None = None) -> None:
     """Toggle the ``hil`` MCP server for Cline, keeping a one-time backup.
 
-    ``project_root`` also repoints the server's ``HIL_PROJECT_ROOT`` so an isolated
-    run queries the copy it is actually working in, not the real checkout.
+    ``project_root`` temporarily repoints ``HIL_PROJECT_ROOT`` so an isolated run
+    queries the copy it is actually working in. ``base_env`` is the configuration to
+    restore afterwards: the caller must pass the env it captured *before* the run,
+    otherwise the isolation path would be left behind as the global default (which
+    silently makes every later call in every project query a scratch copy).
     """
     payload = json.loads(CLINE_SETTINGS.read_text(encoding="utf-8"))
     servers = payload.get("mcpServers", {})
@@ -96,8 +105,10 @@ def set_hil(enabled: bool, project_root: Path | None = None) -> None:
     if not backup.exists():
         shutil.copyfile(CLINE_SETTINGS, backup)
     servers["hil"]["disabled"] = not enabled
+    env = dict(base_env if base_env is not None else read_hil_env())
     if project_root is not None:
-        servers["hil"].setdefault("env", {})["HIL_PROJECT_ROOT"] = str(project_root)
+        env["HIL_PROJECT_ROOT"] = str(project_root)
+    servers["hil"]["env"] = env
     CLINE_SETTINGS.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -246,8 +257,10 @@ def main() -> int:
 
     rows: list[dict] = []
     # The hil toggle is per arm, not per task, so runs within one arm are
-    # independent and can safely overlap.
-    set_hil(args.arm == "hil", root)
+    # independent and can safely overlap. Capture the env first and restore exactly
+    # that, so the isolation path never becomes the machine's default.
+    original_env = read_hil_env()
+    set_hil(args.arm == "hil", root, base_env=original_env)
     try:
         if args.jobs > 1:
             with ThreadPoolExecutor(max_workers=args.jobs) as pool:
@@ -282,7 +295,7 @@ def main() -> int:
                 rows.append(row)
                 report(index, row)
     finally:
-        set_hil(True, root)
+        set_hil(True, None, base_env=original_env)
     rows.sort(key=lambda row: row["id"])
 
     out.write_text(

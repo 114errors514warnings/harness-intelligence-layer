@@ -32,6 +32,8 @@ Do not rebuild the index before every query. V0.1 has no file watcher, but retri
 
 Call `get_project_context(task, project_root, token_budget)` before broad repository exploration when the task is unfamiliar, cross-file, architectural, or diagnostic.
 
+**Check the root it used.** The tool resolves `project_root` from the argument, then `HIL_PROJECT_ROOT`, then the server process cwd. A globally pinned `HIL_PROJECT_ROOT` can silently make every project read the same repository. If the returned `project_root` is not the workspace you are in, stop trusting the package and call again with `project_root` set explicitly.
+
 Write the `task` string as one sentence **plus the identifiers you already know**: file names, symbol names, configuration keys, error codes, CLI flags. Measured on the repository's task set (50 real tasks, 1500 token budget), identifier-rich task strings raise mean context recall to ~97%, which meets the 90% target with almost no required file missed; a Chinese-only question reaches ~74% (a query-side zh->en glossary bridge lifted it from 50.8%), because it still shares little literal form with the English implementation files. Never omit an identifier you already have.
 
 Use the smallest useful budget:
