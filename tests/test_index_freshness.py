@@ -101,6 +101,18 @@ class IndexFreshnessTests(unittest.TestCase):
         self.assertTrue(loaded["refreshed"])
         self.assertIn("unreadable", loaded["stale_reason"])
 
+    def test_index_from_another_root_is_stale(self) -> None:
+        # A backup/restore can drop an index built in a different tree into .hil/.
+        # Its relative paths may still resolve, so the root has to be checked.
+        index_project(self.root)
+        path = self.root / ".hil" / "index.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["root"] = str(self.root / "elsewhere")
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        loaded = load_index(self.root)
+        self.assertTrue(loaded["refreshed"])
+        self.assertIn("another root", loaded["stale_reason"])
+
     def test_memory_writes_do_not_invalidate_index(self) -> None:
         index_project(self.root)
         record_memory(

@@ -314,6 +314,19 @@ def staleness_reason(root: Path, payload: dict) -> str | None:
     """Explain why a stored index does not describe the current tree."""
     if payload.get("version") != INDEX_VERSION:
         return f"schema version {payload.get('version')} != {INDEX_VERSION}"
+    stored_root = payload.get("root")
+    if stored_root:
+        # An index copied from another tree (a backup, a snapshot) can look plausible
+        # - its relative paths may even still exist - while describing different files.
+        # Compare the root before trusting anything else about the payload.
+        try:
+            same_root = os.path.normcase(str(Path(stored_root).resolve())) == os.path.normcase(
+                str(root.resolve())
+            )
+        except OSError:
+            same_root = False
+        if not same_root:
+            return f"index belongs to another root ({stored_root})"
     fingerprint = payload.get("fingerprint")
     if not fingerprint:
         return "index has no fingerprint"

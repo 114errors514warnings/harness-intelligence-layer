@@ -533,6 +533,8 @@ open_dashboard.bat --root D:\MY --window 14  :: 透传给 tools/hil_dashboard.py
 
 **兜底行为**：没有 `HIL_PROJECT_ROOT` 时，只有当进程 cwd **看起来像一个项目**（含 `.git` / `.hil` / `pyproject.toml` / `package.json` / `project.godot` 等标记）才会用它；否则直接报 `no project root: set HIL_PROJECT_ROOT or pass project_root explicitly`。宁可不回答，也不要拿另一个仓库的片段冒充答案。
 
+**从备份/快照恢复时**：`.hil/index.json` 里记录了自己的 `root`。如果它属于**另一个目录**（例如把快照里的 `.hil` 一起恢复回来了），会被判为陈旧并自动重建，而不是拿旧路径去猜。
+
 **自检方法**：在项目里调用一次 `index_project`（不带参数），看返回的 `root` 是不是当前项目；或读该项目 `.hil/hil-status.md`。
 
 > 事故记录（2026-10-15）：一次 A/B 运行把 `HIL_PROJECT_ROOT` 临时指向隔离副本，恢复时误把副本路径写了回去，导致 Cline 之后一直在查一个临时目录。`benchmarks/ab_run.py` 已改为**精确恢复运行前的 env**。

@@ -50,6 +50,10 @@ SKIP_DIRS = {
     ".git", ".hg", ".svn", ".venv", "venv", "node_modules", "dist", "build",
     "__pycache__", ".archify", ".tox", ".mypy_cache", ".pytest_cache",
 }
+#: Backup/restore trees are not projects people work in. They are exactly the kind
+#: of copy that can carry a stale ``.hil/`` along, so the scan should not present
+#: them as maintained projects.
+SKIP_PREFIXES = ("_recovery", "_restore")
 
 
 def find_projects(roots: list[Path], max_depth: int, exclude_temp: bool = True) -> list[Path]:
@@ -68,6 +72,7 @@ def find_projects(roots: list[Path], max_depth: int, exclude_temp: bool = True) 
             here = Path(current)
             depth = len(here.relative_to(root).parts)
             dirs[:] = [name for name in dirs if name not in SKIP_DIRS]
+            dirs[:] = [name for name in dirs if not name.startswith(SKIP_PREFIXES)]
             if depth >= max_depth:
                 dirs[:] = []
             if (here / ".hil").is_dir():
